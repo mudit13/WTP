@@ -1,0 +1,71 @@
+﻿# ============================================================================
+# WTP - Topic 8 unified repo .gitignore
+# Repo root maps to the container project root (/pitsec_sose26_topic8).
+# Large data, model weights, and venvs live alongside the code but are NEVER
+# committed (venvs are non-relocatable; weights/datasets are too large).
+# ============================================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.pyc
+
+# --- Virtual environments (non-relocatable; recreate, never commit) ---
+venv/
+.venv/
+venv_sd15/
+venv_flux1/
+venv_stylegan3/
+
+# --- Datasets & generated images (too large) ---
+dataset/
+*.png
+*.jpg
+*.jpeg
+
+# --- Model weights / checkpoints (too large) ---
+models/
+*.pt
+*.pth
+*.pkl
+*.ckpt
+*.safetensors
+*.bin
+*.npz
+
+# --- Results & logs (keep the dirs, ignore contents) ---
+results/*
+!results/.gitkeep
+logs/*
+!logs/.gitkeep
+*.log
+
+# --- Local env / secrets (NEVER commit) ---
+configs/paths.env
+.ssh/
+.git-credentials
+.gitconfig
+.bash_history
+.bash_logout
+.bashrc
+.profile
+
+# --- IDE / tooling caches ---
+.cache/
+.config/
+.claude/
+.copilot/
+.cursor-server/
+.vscode-server/
+.local/
+.dotnet/
+.java/
+
+# --- OS cruft (these silently corrupt datasets - never commit) ---
+.DS_Store
+._*
+Thumbs.db
+
+# Internal team coordination notes (kept local, not for GitHub)
+docs/OPEN_QUESTIONS.md

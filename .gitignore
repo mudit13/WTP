@@ -18,6 +18,9 @@ venv_sd15/
 venv_flux1/
 venv_stylegan3/
 
+# --- Vendored upstream repo clone (large; recreate via git clone NVlabs/stylegan3) ---
+stylegan3/
+
 # --- Datasets & generated images (too large) ---
 dataset/
 *.png

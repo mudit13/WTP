@@ -81,7 +81,7 @@ pretrained weights it must be TRAINED per GAN set. Training requires:
 - Yu2019's preprocessing (fixed crop/resize) and their attribution-network training loop.
 - GPU time on the single Titan RTX (24 GB).
 
-## Decision (pending the supervisor - see docs/OPEN_QUESTIONS.md item #3)
+## Decision (pending the supervisor; see docs/GOLD_ALIGNMENT.md, GAN-Fingerprints note)
 Option A (preferred if time allows): train GAN-Fingerprints on StyleGAN3 + DFFD GAN classes
 + a real class, then evaluate attribution; expect strong results on GANs and category
 mismatch on diffusion (SD1.5/FLUX), which we report as designed behavior.

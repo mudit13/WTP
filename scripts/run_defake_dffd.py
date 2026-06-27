@@ -68,6 +68,8 @@ def main():
     blip = blip_decoder(pretrained=BLIP_URL, image_size=IMAGE_SIZE, vit="base")
     blip.eval()
     blip = blip.to(device)
+    # SECURITY: weights_only=False executes pickle on load - only use the project's OWN
+    # trusted checkpoints under $WTP_ROOT/models, never untrusted/downloaded .pt files.
     finetuned_clip = torch.load(FINETUNE_CLIP_PATH, map_location=device, weights_only=False).to(device)
     linear = torch.load(CLIP_LINEAR_PATH, map_location=device, weights_only=False)
     linear = linear.to(device)

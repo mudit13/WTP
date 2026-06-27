@@ -79,6 +79,9 @@ def load_models(device):
     blip.eval()
     blip = blip.to(device)
 
+    # SECURITY: weights_only=False executes pickle and can run arbitrary code on load.
+    # Only ever point these at the project's OWN trusted checkpoints under $WTP_ROOT/models
+    # (the supervisor-provided clip_linear.pt / finetune_clip.pt). Never a downloaded/untrusted .pt.
     print(f"Loading fine-tuned CLIP from {FINETUNE_CLIP_PATH}...")
     finetuned_clip = torch.load(FINETUNE_CLIP_PATH, map_location=device, weights_only=False).to(device)
 

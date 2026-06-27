@@ -7,9 +7,13 @@ Author: Vishnu
 Generates >=100 images from FLUX.1-schnell for DE-FAKE evaluation.
 Output: /pitsec_sose26_topic8/dataset/flux1_txt2img/
 
-Usage (inside Docker):
-    source /pitsec_sose26_topic8/venv_sd15/bin/activate
-    python3.9 /pitsec_sose26_topic8/generate_flux1_txt2img.py
+Usage (inside Docker) - FLUX uses its OWN venv (venv_flux1), not venv_sd15:
+    source /pitsec_sose26_topic8/venv_flux1/bin/activate
+    python3.9 scripts/generate_flux1_txt2img.py
+
+NOTE: output/model paths below are hardcoded to the container layout
+(/pitsec_sose26_topic8/...). This is intentional for the generation scripts (the data lives
+there regardless of repo location); the analysis scripts use configs/paths.env instead.
 """
 
 import torch

@@ -42,8 +42,9 @@ $PY scripts/prepare_variants.py --config $CFG --master $DS/master_metadata.csv \
 $PY scripts/run_defake_batch.py            # writes $WTP_PRED_CSV
 $PY scripts/run_defake_dffd.py             # writes $WTP_PRED_DFFD_CSV
 $PY scripts/merge_predictions.py           # -> $WTP_PRED_ALL_CSV
-#     To run on a preprocessing variant instead, override the env paths, e.g.:
-#       WTP_MASTER_CSV=$DS/variants/master_scaled.csv \
+#     To run on a preprocessing variant instead, point at the variant index that
+#     prepare_variants.py actually writes (results/index_scaled.csv / results/index_cropped.csv):
+#       WTP_MASTER_CSV=results/index_scaled.csv \
 #       WTP_PRED_CSV=$DS/defake_predictions_scaled.csv $PY scripts/run_defake_batch.py
 #     Then SCORE the predictions here:
 $PY scripts/score_defake_detection.py --predictions $DS/defake_predictions_all.csv \

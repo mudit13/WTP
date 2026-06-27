@@ -22,6 +22,7 @@ Usage:
 """
 import argparse
 import os
+import random
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -30,27 +31,41 @@ from lib import io_utils, schema  # noqa: E402
 import pandas as pd  # noqa: E402
 
 
-def _iter_files(dataset, logger):
+def _iter_files(dataset, seed, logger):
+    """List image files in dataset['dir']; if sample_size is set, take a SEEDED RANDOM
+    subset (reproducible, per-dataset) rather than the first-N sorted (which is biased)."""
     base = dataset["dir"]
-    if not os.path.isdir(base):
-        logger.warning("[skip] %s: dir not found %s", dataset["name"], base)
-        return []
     exts = [e.lower() for e in dataset.get("ext", [".png"])]
     files = sorted(f for f in os.listdir(base)
                    if os.path.splitext(f)[1].lower() in exts
                    and os.path.isfile(os.path.join(base, f)))
+    total = len(files)
     sample = dataset.get("sample_size")
-    if sample:
-        files = files[:int(sample)]
-    logger.info("%-18s %5d images from %s", dataset["name"], len(files), base)
+    if sample and total > int(sample):
+        rng = random.Random("%s:%s" % (seed, dataset["name"]))
+        files = sorted(rng.sample(files, int(sample)))
+        logger.info("%-18s sampled %d/%d (seeded random, seed=%s)",
+                    dataset["name"], len(files), total, seed)
+    else:
+        logger.info("%-18s %5d images from %s", dataset["name"], len(files), base)
     return [os.path.join(base, f) for f in files]
 
 
-def build_rows(config, logger):
+def build_rows(config, seed, logger):
+    """Return (rows, skipped_missing, empty). skipped_missing = configured datasets whose
+    dir is absent; empty = present dirs that yielded 0 matching files."""
     from PIL import Image
-    rows = []
+    rows, skipped, empty = [], [], []
     for dataset in config["datasets"]:
-        for path in _iter_files(dataset, logger):
+        base = dataset["dir"]
+        if not os.path.isdir(base):
+            logger.warning("[skip] %s: dir not found %s", dataset["name"], base)
+            skipped.append(dataset["name"])
+            continue
+        paths = _iter_files(dataset, seed, logger)
+        if not paths:
+            empty.append(dataset["name"])
+        for path in paths:
             width = height = -1
             try:
                 with Image.open(path) as img:
@@ -67,7 +82,7 @@ def build_rows(config, logger):
                 schema.WIDTH: width,
                 schema.HEIGHT: height,
             })
-    return rows
+    return rows, skipped, empty
 
 
 def reconcile(meta_df, predictions_csv, logger):
@@ -97,8 +112,10 @@ def reconcile(meta_df, predictions_csv, logger):
 def main(args):
     logger = io_utils.setup_logging("build_master_index")
     config = io_utils.load_config(args.config)
+    seed = int(config.get("seed", 42))
 
-    df = pd.DataFrame(build_rows(config, logger), columns=schema.MASTER_COLUMNS)
+    rows, skipped, empty = build_rows(config, seed, logger)
+    df = pd.DataFrame(rows, columns=schema.MASTER_COLUMNS)
     before = len(df)
     df = df.drop_duplicates(subset=[schema.PATH]).reset_index(drop=True)
     if before != len(df):
@@ -109,6 +126,23 @@ def main(args):
     logger.info("Wrote %s with %d rows", args.out, len(df))
     logger.info("Label counts:\n%s", df[schema.LABEL].value_counts().to_string())
     logger.info("Generator counts:\n%s", df[schema.GENERATOR].value_counts().to_string())
+
+    # --- partial-dataset guard (make silent gaps loud) -----------------------
+    n_real = int((df[schema.LABEL] == schema.REAL).sum())
+    n_fake = int((df[schema.LABEL] == schema.FAKE).sum())
+    if skipped:
+        logger.warning("[summary] %d dataset dir(s) MISSING (skipped): %s",
+                       len(skipped), skipped)
+    if empty:
+        logger.warning("[summary] %d dataset(s) present but yielded 0 files: %s",
+                       len(empty), empty)
+    if n_real == 0 or n_fake == 0:
+        logger.error("[summary] one class is EMPTY (real=%d, fake=%d) - the index is "
+                     "UNUSABLE for detection. Fix dataset paths before running experiments.",
+                     n_real, n_fake)
+    logger.info("[summary] total=%d real=%d fake=%d | datasets: present=%d skipped=%d empty=%d",
+                len(df), n_real, n_fake,
+                len(config["datasets"]) - len(skipped), len(skipped), len(empty))
 
     if args.reconcile:
         reconcile(df, args.reconcile, logger)

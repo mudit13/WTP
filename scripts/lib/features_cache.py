@@ -11,6 +11,8 @@ If a captions CSV (full_path, blip_caption) is provided, features are the faithf
 
 DE-FAKE interpreter only (venv_sd15 on the server). ASCII-only; Python 3.9.
 """
+import hashlib
+import json
 import os
 from typing import Optional, Tuple
 
@@ -18,6 +20,32 @@ import numpy as np
 import pandas as pd
 
 from . import schema
+
+
+def _file_hash(path: Optional[str]) -> str:
+    """SHA-256 of a file's bytes (or a sentinel if missing). Used so the feature cache
+    invalidates when the index/captions content changes, not just their path."""
+    if not path or not os.path.exists(path):
+        return "<none>"
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _signature(index_csv, captions_csv, model_name, jpeg_aug, jpeg_quality_range, seed) -> str:
+    """Fingerprint of everything that affects the features. A cache whose signature differs
+    (different index content, captions, CLIP model, JPEG params, or seed) is NOT reused."""
+    meta = {
+        "index": _file_hash(index_csv),
+        "captions": _file_hash(captions_csv),
+        "model": str(model_name),
+        "jpeg_aug": bool(jpeg_aug),
+        "qr": [int(jpeg_quality_range[0]), int(jpeg_quality_range[1])],
+        "seed": int(seed),
+    }
+    return hashlib.sha256(json.dumps(meta, sort_keys=True).encode()).hexdigest()
 
 
 def _load_captions(captions_csv: str) -> dict:
@@ -46,13 +74,15 @@ def build_features(index_csv: str,
     schema columns. When captions_csv is given, X is 1024-dim image+text.
 
     When jpeg_aug is True, each image is pushed through a random JPEG quality (per-path
-    deterministic) before CLIP - the format/compression confound control. A cache built with a
-    different jpeg_aug setting is ignored (not silently reused).
+    deterministic) before CLIP - the format/compression confound control. A cache is reused
+    ONLY when its full signature (index + captions content, model, jpeg params, seed) matches;
+    otherwise it is recomputed, so stale features can never silently back a new experiment.
     """
+    sig = _signature(index_csv, captions_csv, model_name, jpeg_aug, jpeg_quality_range, seed)
     if cache_path and os.path.exists(cache_path) and not force:
         data = np.load(cache_path, allow_pickle=True)
-        cached_aug = bool(np.asarray(data["jpeg_aug"]).ravel()[0]) if "jpeg_aug" in data else False
-        if cached_aug == bool(jpeg_aug):
+        cached_sig = str(np.asarray(data["signature"]).ravel()[0]) if "signature" in data else ""
+        if cached_sig == sig:
             return (data["X"].astype(np.float32), data["generator"].astype(str),
                     data["label"].astype(str), data["paths"].astype(str))
 
@@ -86,5 +116,6 @@ def build_features(index_csv: str,
         os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
         np.savez_compressed(cache_path, X=X, generator=generator,
                             label=label, paths=paths_arr,
-                            jpeg_aug=np.array([bool(jpeg_aug)]))
+                            jpeg_aug=np.array([bool(jpeg_aug)]),
+                            signature=np.array([sig]))
     return X, generator, label, paths_arr

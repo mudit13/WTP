@@ -75,3 +75,17 @@ matching the team's working `run_defake_batch.py`.
 
 Never use bare `python`. See `docs/PIPELINE.md` for the full run order and
 `docs/REPORT_OUTLINE.md` for the report structure.
+
+## Security note (model/feature loading)
+
+A few load paths deserialize Python objects and will execute arbitrary code if the file is
+malicious. They are safe **only because we load our own trusted artifacts**:
+
+- `run_defake_batch.py` / `run_defake_dffd.py` use `torch.load(..., weights_only=False)` on
+  the supervisor-provided `clip_linear.pt` / `finetune_clip.pt` in `$WTP_ROOT/models`.
+- `generate_stylegan3.py` uses `pickle.load` on the official StyleGAN3 `.pkl`.
+- `features_cache.py` / `dct_svm.py` use `np.load(allow_pickle=True)` on caches this pipeline
+  itself wrote.
+
+Rule: never point these at a downloaded/untrusted checkpoint or feature file. If a checkpoint
+is a plain `state_dict`, prefer `weights_only=True`.

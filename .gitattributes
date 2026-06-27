@@ -1,0 +1,17 @@
+# Normalize line endings: dev on Windows, run on the Linux container.
+# Without this, CRLF can sneak in and break shell/python over SSH.
+* text=auto eol=lf
+
+# Treat binaries as binary (never line-ending-normalize or diff as text)
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.pdf  binary
+*.pt   binary
+*.pth  binary
+*.pkl  binary
+*.ckpt binary
+*.safetensors binary
+*.npy  binary
+*.npz  binary

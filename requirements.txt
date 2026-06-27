@@ -1,0 +1,17 @@
+# Analysis-side dependencies for the WTP Topic 8 repo.
+#
+# IMPORTANT: torch, torchvision, clip, and diffusers are ALREADY provided inside the
+# container (system python has torch 1.12.1+cu113 + CLIP; venv_sd15 has torch 2.0.1 +
+# diffusers). Do NOT pip-install or upgrade torch/clip/diffusers in the container - it
+# will break the pinned CUDA builds. The packages below are the lightweight, safe deps
+# used by the data-prep, DCT-SVM, metrics, and plotting scripts.
+
+numpy>=1.21,<2.0
+scipy>=1.7
+scikit-learn>=1.0
+pandas>=1.3
+pillow>=9.0
+matplotlib>=3.4
+seaborn>=0.11
+pyyaml>=5.4
+tqdm>=4.62

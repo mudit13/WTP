@@ -1,0 +1,153 @@
+# Central configuration for the WTP Topic 8 pipeline.
+# Aligned with the EXISTING server layout (github.com/mudit13/WTP):
+#   dataset root: ${WTP_ROOT}/dataset   (host: .../sharedDockerDir/dataset)
+#   master CSV schema: filename, full_path, label, generator, category, source_dataset, width, height
+# Paths use ${VAR} placeholders resolved from configs/paths.env (or the real environment).
+
+root: ${WTP_ROOT}                       # /pitsec_sose26_topic8 inside the container
+dataset_root: ${WTP_ROOT}/dataset
+master_csv: ${WTP_ROOT}/dataset/master_metadata.csv
+predictions_all: ${WTP_ROOT}/dataset/defake_predictions_all.csv
+
+# Common working size for the preprocessing study (DE-FAKE squashes to 224 internally; we
+# standardize on-disk variants so the scaling-vs-cropping comparison is clean).
+# 256 chosen deliberately: sources range 178 (CelebA) -> 299 (DFFD) -> 512 (ours) -> 1350
+# (London-DB). 256 is near DFFD-native and DE-FAKE's 224, so it mostly DOWNSCALES (safer)
+# and avoids the heavy upscaling/interpolation artifacts that 512 would add to CelebA/DFFD.
+common_size: 256
+output_format: png                      # lossless derived images (GOLD concern #2)
+
+# Training-time augmentation to control the format/compression confound.
+# Source formats correlate with label (JPEG appears only in reals: CelebA + London-DB;
+# all fakes are PNG). Re-encoding JPEG->PNG does NOT remove baked-in JPEG artifacts, so we
+# apply random JPEG compression to ALL classes during detector/attribution TRAINING so
+# "has been JPEG-compressed" can no longer leak the label (Frank 2020 / Wang 2020).
+augmentation:
+  jpeg_train: true
+  jpeg_quality_range: [30, 100]
+
+# --- Datasets (mirror build_master_index.py + update_master_index_dffd.py) ----
+# Each entry: name(=source_dataset), label, generator(human name), category, dir, ext list.
+# Optional: sample_size, exclude_glob, note. build_master_index.py skips missing dirs.
+datasets:
+  - name: sd15_txt2img
+    label: fake
+    generator: "SD1.5"
+    category: near_in_set
+    dir: ${WTP_ROOT}/dataset/sd15_txt2img/images
+    ext: [".png"]
+    note: "Near in-set proxy for DE-FAKE (diffusion family)."
+
+  - name: sd15_img2img
+    label: fake
+    generator: "SD1.5-img2img"
+    category: out_of_set
+    dir: ${WTP_ROOT}/dataset/sd15_img2img/images
+    ext: [".png"]
+    note: "Iterative-generation stress test (may not exist yet; skipped if absent)."
+
+  - name: flux1_txt2img
+    label: fake
+    generator: "FLUX.1-schnell"
+    category: out_of_set
+    dir: ${WTP_ROOT}/dataset/flux1_txt2img/images
+    ext: [".png"]
+    note: "Out-of-set modern diffusion generator."
+
+  - name: stylegan3
+    label: fake
+    generator: "StyleGAN3-FFHQ"
+    category: out_of_set
+    dir: ${WTP_ROOT}/dataset/stylegan3/images
+    ext: [".png"]
+    note: "Out-of-set GAN face generator."
+
+  - name: londondb
+    label: real
+    generator: "London-DB"
+    category: real
+    dir: ${WTP_ROOT}/dataset/londondb/neutral_front/neutral_front
+    ext: [".jpg"]
+    note: "Face Research Lab London Set, neutral_front only -> very narrow real cluster."
+
+  - name: celeba_real
+    label: real
+    generator: "CelebA"
+    category: real
+    dir: ${WTP_DFFD_DIR}/img_align_celeba
+    ext: [".jpg"]
+    sample_size: 320
+    note: "Aligned CelebA real faces (web-crawled). Balances real class + adds a capture
+      condition distinct from FFHQ (Flickr) and London-DB (studio). 202k available."
+
+  - name: openforensics_real
+    label: real
+    generator: "OpenForensics"
+    category: real
+    dir: ${WTP_ROOT}/dataset/openforensics/real
+    ext: [".png", ".jpg"]
+    note: "In-the-wild faces (real subset). Optional; pending supervisor preference; skipped if absent."
+
+  # --- DFFD (from /share/DeepFake/DFFD_Images/<model>/test) -------------------
+  - name: dffd_ffhq
+    label: real
+    generator: "FFHQ"
+    category: real
+    dir: ${WTP_DFFD_DIR}/ffhq/test
+    ext: [".png", ".jpg"]
+    sample_size: 300
+    note: "DFFD real subset (FFHQ, Flickr faces). Bumped 100->300 to balance the real class
+      (9000 available in ffhq/test)."
+
+  - name: dffd_pggan_v1
+    label: fake
+    generator: "PGGAN-v1"
+    category: out_of_set
+    dir: ${WTP_DFFD_DIR}/pggan_v1/test
+    ext: [".png", ".jpg"]
+    sample_size: 100
+
+  - name: dffd_pggan_v2
+    label: fake
+    generator: "PGGAN-v2"
+    category: out_of_set
+    dir: ${WTP_DFFD_DIR}/pggan_v2/test
+    ext: [".png", ".jpg"]
+    sample_size: 100
+
+  - name: dffd_stargan
+    label: fake
+    generator: "StarGAN"
+    category: out_of_set
+    dir: ${WTP_DFFD_DIR}/stargan/test
+    ext: [".png", ".jpg"]
+    sample_size: 100
+
+  - name: dffd_faceapp
+    label: fake
+    generator: "FaceApp"
+    category: out_of_set
+    dir: ${WTP_DFFD_DIR}/faceapp/test
+    ext: [".png", ".jpg"]
+    sample_size: 100
+
+# --- Attribution label space (human generator names) -------------------------
+# NOTE: the provided DE-FAKE head (clip_linear.pt) is BINARY only (real/fake). There is no
+# pretrained multi-class attribution; attribution is produced by our fine-tuned head.
+attribution:
+  real_generators: ["London-DB", "FFHQ", "CelebA", "OpenForensics"]
+  in_set_generators: ["SD1.5"]
+  out_of_set_generators: ["FLUX.1-schnell", "StyleGAN3-FFHQ", "PGGAN-v1", "PGGAN-v2", "StarGAN", "FaceApp", "SD1.5-img2img"]
+  finetune_new_classes: ["FLUX.1-schnell", "StyleGAN3-FFHQ"]
+
+# --- Robustness perturbations (held-out test images only) --------------------
+robustness:
+  jpeg_quality: [30, 50, 70]
+  gaussian_blur_sigma: [1, 2]
+  resize_factors: [0.5, 0.75]
+  sharpen: [1.0]
+
+# --- Reproducibility ---------------------------------------------------------
+seed: 42
+test_size: 0.2
+val_size: 0.1

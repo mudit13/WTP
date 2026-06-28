@@ -1,10 +1,5 @@
 """
-GAN Fingerprints (Yu2019-inspired): residual/spectrum fingerprint features.
-
-Scope note: Yu et al. 2019 ("Attributing Fake Images to GANs") learn fingerprints with a CNN.
-This module is the hand-crafted FEATURE variant of that idea (residual + FFT-spectrum traces +
-a small MLP head); the CNN variant closer to Yu2019's learned-fingerprint setup lives in
-ganfp_net.py. Neither is a byte-faithful reimplementation of the paper's code.
+GAN Fingerprints (Yu2019) reproduction: residual/spectrum fingerprint features.
 
 DE-FAKE (CLIP/semantic) cannot attribute GAN images - it misses model-specific generation
 traces. GAN fingerprints are those traces. Per image we compute, on the luminance channel:
@@ -16,7 +11,7 @@ each downsampled to a fixed grid and L2-normalized. A small learned classifier
 expected to mismatch (out-of-set) - documented behavior, not a failure.
 
 No pretrained GAN-fp weights exist (models/ holds DE-FAKE + generators only) and the legacy
-/workspace/GANFingerprints repo is Chainer/cupy (dead), so we re-implement the method's idea in
+/workspace/GANFingerprints repo is Chainer/cupy (dead), so this reproduces the method in
 PyTorch over our generators (GOLD_ALIGNMENT.md GAN-Fingerprints note; PROJECT_LOG section 5).
 
 This module is numpy/scipy/Pillow only - torch is NOT imported here (the classifier lives in

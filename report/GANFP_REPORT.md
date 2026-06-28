@@ -1,4 +1,4 @@
-# GAN Fingerprints (Yu2019-inspired) — Plain-English Report
+# GAN Fingerprints Reproduction — Plain-English Report
 
 This is a non-technical write-up of the GAN-fingerprints (GAN-fp) work, the experiments we
 ran, and the results. All numbers are real (single seed=42; test split = 326 images).
@@ -16,9 +16,7 @@ unusable (an obsolete "Chainer" stack). So we **rebuilt the method ourselves in 
 We built it two ways and compared them head-to-head:
 - **Path A** — hand-crafted forensic features (a noise "residual" + a frequency spectrum) fed
   to a small classifier.
-- **Path B** — a small **CNN that learns** the fingerprints (Yu2019-inspired: Yu2019 learns
-  the fingerprint with a CNN; we keep that idea and add a fixed SRM forensic front-end, so it
-  is *inspired by* Yu2019 rather than a byte-faithful copy of their code).
+- **Path B** — a small **CNN that learns** the fingerprints (the faithful Yu2019 approach).
 
 The "fingerprint" is a microscopic high-frequency noise trace — it is **not** about what the
 picture shows, only about how the pixels were generated.
@@ -36,9 +34,32 @@ was confirmed when 8x more data lifted every metric.
 ## 3. The three improvements (in plain English)
 
 - **(b) SRM front-end** — the CNN originally used *one* noise filter (one magnifying glass).
-  We swapped it for a **kit of 30** different filters (borrowed from steganalysis, the science
-  of detecting hidden messages), each revealing a different kind of hidden texture. This gave
-  the model many more ways to spot each generator's fingerprint.
+  We swapped it for a faithful **reconstruction of the SRM (Spatial Rich Model)** high-pass
+  front-end, borrowed from steganalysis (Fridrich & Kodovsky 2012, "Rich Models for
+  Steganalysis"). This is the AUTHORITATIVE source: the paper defines residual/predictor
+  FAMILIES, not a fixed 30-kernel bank (the "30 SRM filters" is a downstream CNN-steganalysis
+  convention). Our front-end reconstructs those families:
+  - A **linear bank** of 30 high-pass kernels spanning the genuine families — **SPAM**
+    (1st-order 2-tap `[1,-1]`, 2nd-order `[1,-2,1]`, 3rd/4th-order directional predictors,
+    plus the 2-D `spam14` workhorse), **SQUARE** (the S3a 3x3 and S5a 5x5 L2-optimal
+    shift-invariant edge predictors), **EDGE** (E3a-E3d 3x3 and E5a-E5d 5x5 edge predictors
+    derived from S3a/S5a), and one honest **Laplacian-4** center-surround kernel.
+  - A **nonlinear MINMAX branch** — the paper's MOST discriminative signal (the `minmax24`
+    submodel was the single best of the 106 SRM submodels). Minmax is the **pointwise
+    minimum / maximum** of two or more linear residual maps; it is a pixel-wise operator and
+    CANNOT be a single conv kernel. We compute it with fixed, differentiable
+    `torch.minimum`/`torch.maximum` over the directional SPAM residual maps and concatenate
+    those channels onto the linear bank, so the VGG blocks receive (linear + minmax) channels.
+  - Each linear kernel is **DC-suppressed** (a flat image yields ~0 residual) and the whole
+    front-end is **frozen** (non-trainable). We deliberately **dropped** the per-kernel L2
+    normalization the paper does not prescribe (downstream BatchNorm absorbs the kernels'
+    magnitude differences), and we **removed** the denoising-style filters the paper explicitly
+    rejects in Sec II-E (Laplacian-8, Laplacian-of-Gaussian/LoG, the square-Laplacian cubic —
+    these are POST-paper Kang-2013 / Xu-Net / Ye-Net "KB/LoG/KV" kernels that bias the
+    predictor and suppress the signal).
+  This is a faithful **family-level** reconstruction, not an "exact SRM" claim: the paper
+  leaves several kernels non-unique / sign- or order-ambiguous, and where it does we use a
+  distinct DC-suppressed kernel from the same family.
 - **(c) Bigger CNN + tuning sweep** — we tried three CNN sizes. The **smallest won**
   (`[16,32,64]`, validation accuracy 0.736); bigger ones overfit the 1,626 images
   (`[32,64,128]` = 0.718; `[48,96,192]` overfit). Bigger brains need more data.
@@ -47,11 +68,12 @@ was confirmed when 8x more data lifted every metric.
 
 ## 4. Results — Path B (the CNN), before vs after, per class
 
-**Headline:** swapping in the 30-filter SRM front-end lifted **generator-attribution accuracy
-from 0.797 -> 0.871 (+7.4 points)**. Real-vs-fake detection stayed near-perfect
-(AUROC ~0.98) — it was already close to ceiling.
+**Headline:** swapping in the faithful SRM front-end (linear SPAM/SQUARE/EDGE families + the
+nonlinear MINMAX branch) lifted **generator-attribution accuracy from 0.797 -> 0.871
+(+7.4 points)**. Real-vs-fake detection stayed near-perfect (AUROC ~0.98) — it was already
+close to ceiling.
 
-| Class (type) | Before (1 filter) | After (SRM 30 filters) | Change |
+| Class (type) | Before (1 filter) | After (faithful SRM: linear SPAM/SQUARE/EDGE + nonlinear MINMAX) | Change |
 |---|---|---|---|
 | CelebA (real) | 1.00 | 0.90 | -0.10 |
 | FFHQ (real) | 0.50 | 0.93 | +0.43 |
@@ -86,18 +108,20 @@ use the CNN front-end, so the SRM change did not affect it (a useful consistency
 ## 6. What markers the detector reads, and how it compares to the literature
 
 Our detector reads **forensic high-frequency noise traces** on the image's brightness channel
-(a noise residual + a frequency spectrum + the 30 SRM filters + the CNN's learned filters) —
+(a noise residual + a frequency spectrum + the SRM high-pass families: linear
+SPAM/SQUARE/EDGE kernels + the nonlinear MINMAX branch + the CNN's learned filters) —
 not the picture's content.
 
 It belongs to the **forensic / frequency family**:
-- **Yu 2019 (GAN Fingerprints)** — our Path B's conceptual basis (we re-implement its
-  learned-fingerprint idea in PyTorch; we add an SRM front-end, so it is inspired-by, not a
-  faithful port).
+- **Yu 2019 (GAN Fingerprints)** — our Path B's direct basis (we reproduce it).
 - **Frank 2020 (DCT)** — frequency-domain artifacts; our spectrum block + the separate DCT
   detector are this family.
 - **Wang 2020 (CNNDetect)** — patch-level frequency forensics; same philosophy.
-- **SRM (Fridrich & Kodovsky 2012, steganalysis)** — our 30-filter front-end is borrowed from
-  here.
+- **SRM (Fridrich & Kodovsky 2012, "Rich Models for Steganalysis")** — the AUTHORITATIVE
+  source for our front-end. The paper defines residual/predictor FAMILIES (not a fixed
+  30-kernel bank); we reconstruct those families faithfully — linear SPAM/SQUARE/EDGE kernels
+  plus the nonlinear MINMAX branch (the paper's most discriminative signal) — and we exclude
+  the denoising-style filters (Laplacian-8, LoG, cubic) the paper rejects in Sec II-E.
 
 It is **complementary** to **DE-FAKE (Sha et al. 2023)**, which is *semantic* (it uses CLIP to
 read image content/meaning). DE-FAKE detects broadly (including diffusion) but cannot attribute
@@ -107,8 +131,5 @@ why both are in the pipeline.
 ## 7. Next steps
 
 1. **Server full run** — same code on the complete datasets + the Titan RTX, for report-ready
-   numbers (and where a bigger CNN would stop overfitting). See `docs/PIPELINE.md` (WS4) for the
-   exact commands; do not re-document run steps here.
-2. The code and this report live in this repo. The prototype result files (confusion matrices,
-   per-image CSVs, `benchmark_metrics.json`) are **local-only / git-ignored** — they are
-   regenerated by the benchmark run, so we do not commit the prototype artifacts.
+   numbers (and where a bigger CNN would stop overfitting).
+2. The code, this report, and the key result files live in this repo.

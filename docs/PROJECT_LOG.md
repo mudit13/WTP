@@ -139,6 +139,68 @@ ranking quality from operating-point choice.
 `run_defake_batch.py` processes every row, so detection inference is `run_defake_batch.py`
 ALONE (no `run_defake_dffd.py` + `merge_predictions.py`, which would double-count DFFD).
 
+## 10. GAN Fingerprints (Yu2019-inspired) reproduced in PyTorch
+
+**What:** Added a GAN-fp attribution path as a second method beside the CLIP/DE-FAKE head.
+`scripts/lib/ganfp.py` extracts residual + FFT-spectrum fingerprint features (luminance,
+downsampled to a fixed grid, L2-normalized); `scripts/train_ganfp.py` trains
+`defake_head._MLPHead` on them (multi-class attribution + secondary binary detection, writes
+`ganfp_metrics.json`/confusion matrix/per-image/`ganfp_head.pt`); `scripts/run_ganfp_infer.py`
+emits a per-image CSV the existing `eval_defake_attribution.py` consumes unchanged. A `ganfp:`
+block was added to `configs/config.yaml`; `tests/test_ganfp.py` covers the feature math (no
+torch). `run_ganfp.py` is now just the weight-discovery/scope-note helper.
+
+**Why:** Verified on the server that no pretrained GAN-fp weights exist (`models/` = DE-FAKE +
+generators only) and the legacy `/workspace/GANFingerprints` repo is Chainer/cupy (dead) built
+for other GANs (ProGAN/SNGAN/MMDGAN/CramerGAN). DE-FAKE (CLIP/semantic) cannot attribute GAN
+images, so we reproduce the fingerprint method ourselves (it targets the GAN-specific traces).
+Expected to attribute GAN sources (StyleGAN3, DFFD families) and to category-mismatch on
+diffusion (SD1.5, FLUX) - documented behavior, not a failure.
+
+**Local prototype:** built + validated locally on CPU against a downloaded ~20-image/generator
+sample (`ganfp_sample/`, gitignored) across StyleGAN3 + DFFD families + reals + diffusion. The
+full server-GPU run over the complete datasets is the remaining step (item A).
+
+## 11. GANFingerprints rebuild: CNN path, train-only PCA, head-to-head benchmark (2026-06-28)
+
+**What:** Rebuilt the GAN-fp attribution method as a DUAL path with a shared, reproducible
+head-to-head benchmark:
+- **Path B (CNN, new):** `scripts/lib/ganfp_net.py` - a Yu2019-INSPIRED CNN (Yu2019 learns
+  the fingerprint with a CNN; we keep that idea and add a fixed SRM forensic front-end - this
+  is NOT a byte-faithful Yu2019 reimplementation). A FIXED (non-trainable, DC-suppressed) SRM
+  high-pass front-end `Conv2d(1,30,5,bias=False)` (Spatial Rich Model bank, Fridrich &
+  Kodovsky 2012; 30 distinct DC-suppressed filters, `requires_grad=False`) feeds 3 VGG-style
+  conv blocks (Conv-BN-ReLU x2 + MaxPool) + AdaptiveAvgPool2d(1) + Linear(128)+ReLU+
+  Dropout(0.3)+Linear(C). Channels are configurable: code default is [32,64,128] (~330K
+  trainable), but `config.yaml` uses the sweep-winning [16,32,64] (~82K, val_top1=0.736 on the
+  1626-image set; bigger nets overfit). Single-channel Rec.601 luminance input (256x256),
+  no z-scoring (SRM high-pass + BN replaces it). `GANFpDataset` (torch Dataset, lazy torch
+  import) reuses `image_ops.load_rgb`/`scale_to`/`make_jpeg_augmenter`; `GANFpClassifier`
+  wraps the CNN + Adam + weighted CrossEntropy and mirrors `defake_head._MLPHead`
+  (`fit`/`predict_proba`/`predict`/`save(path,classes)`, best-val checkpoint).
+- **Path A rigor (PCA, modified):** `scripts/lib/ganfp.py` gains
+  `FingerprintStandardizer` (StandardScaler + PCA fit on TRAIN ONLY -> leakage guard) and
+  `build_pca_pipeline` (optional additive 8x8 block-DCT fusion channel -> 96-dim input when
+  `config.ganfp.pca.dct_fuse` is true). Existing `extract_fingerprints`/`build_features`
+  signatures and the `_signature` cache key are UNCHANGED so existing caches still load.
+- **Benchmark (new):** `scripts/benchmark_attribution.py` builds ONE seeded stratified split
+  and runs BOTH paths on identical tr/va/te index arrays, emitting `benchmark_metrics.json`
+  (split + classes + per-path attribution/detection + comparison) plus per-path confusion
+  matrices and per-image CSVs, and the two saved heads (`ganfp_pca_head.pt`, `ganfp_cnn.pt`).
+  Optional `--defake_csv`/`--dct_csv` ingest DE-FAKE/DCT per-image CSVs as extra comparison
+  rows.
+
+**Why:** The original Path A (hand-crafted residual/spectrum features + MLP) is fast and
+interpretable but limited by its fixed feature design. A Yu2019-inspired CNN lets the conv
+filters themselves BECOME the learned model fingerprints (the method's actual claim), giving
+a fair end-to-end comparison against the feature path over the same data and split. The
+train-only PCA removes the leakage risk the GOLD review flagged, and the benchmark gives one
+script that reports CLIP/DE-FAKE vs GAN-fp-feature vs GAN-fp-CNN side by side. Config gains
+`ganfp.cnn` and `ganfp.pca` sub-blocks; `tests/test_ganfp_net.py` covers the high-pass kernel
+(DC-suppressed), the luminance helper, the FingerprintStandardizer leakage guard, and (torch-
+gated via `pytest.importorskip`) the CNN forward shape / param budget / one-step / Dataset.
+`compileall` stays torch-free (every torch import is inside class/method bodies).
+
 ---
 
 ## Open items still needing the supervisor

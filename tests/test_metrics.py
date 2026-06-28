@@ -1,5 +1,6 @@
 """Metrics behave sanely on tiny toy arrays (no model/data needed)."""
 import numpy as np
+import pytest
 
 from lib import metrics
 
@@ -41,5 +42,5 @@ def test_label_flip_rate():
 
 
 def test_performance_and_confidence_drop():
-    assert metrics.performance_drop(0.9, 0.7) == 0.2
-    assert metrics.confidence_drop([0.8, 0.9], [0.6, 0.5]) == 0.3
+    assert metrics.performance_drop(0.9, 0.7) == pytest.approx(0.2)
+    assert metrics.confidence_drop([0.8, 0.9], [0.6, 0.5]) == pytest.approx(0.3)

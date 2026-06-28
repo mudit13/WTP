@@ -140,6 +140,39 @@ attribution:
   out_of_set_generators: ["FLUX.1-schnell", "StyleGAN3-FFHQ", "PGGAN-v1", "PGGAN-v2", "StarGAN", "FaceApp", "SD1.5-img2img"]
   finetune_new_classes: ["FLUX.1-schnell", "StyleGAN3-FFHQ"]
 
+# --- GAN Fingerprints (Yu2019-inspired) re-implementation --------------------
+# Residual/spectrum fingerprint features + a small learned classifier
+# (defake_head._MLPHead). Second attribution method beside the CLIP/DE-FAKE head; targets
+# the GAN-specific traces DE-FAKE cannot attribute (StyleGAN3, DFFD families). Diffusion
+# sources are expected to mismatch (out-of-set). See scripts/lib/ganfp.py +
+# scripts/train_ganfp.py. Reproduction mandated by GOLD_ALIGNMENT.md / PROJECT_LOG section 5.
+ganfp:
+  common_size: 256        # image resize before fingerprint extraction (luminance)
+  feat_size: 32           # each fingerprint block downsampled to feat_size x feat_size
+  mode: both              # residual | spectrum | both
+  epochs: 40
+  lr: 0.001
+  # CNN path (Path B, scripts/lib/ganfp_net.py): Yu2019-INSPIRED CNN (not a byte-faithful
+  # port) with a FIXED SRM high-pass front-end (Fridrich & Kodovsky 2012, 30 filters) + 3 VGG
+  # conv blocks + GAP + linear. ~330K trainable params at the code default channels
+  # [32,64,128]; the channels below ([16,32,64], ~82K) are the sweep winner. Trains in minutes
+  # on CUDA (RTX 4050, batch 32).
+  cnn:
+    input_size: 256       # single-channel luminance input (H=W)
+    channels: [16, 32, 64]  # SWEEP WINNER on the 1626 set (val_top1=0.736; [32,64,128]=0.718, [48,96,192] overfits -> DNF)
+    epochs: 60            # bumped from 30 for the bigger head
+    lr: 0.001
+    weight_decay: 0.0001
+    hflip: true           # training-only random horizontal flip (p=0.5, seeded)
+  # PCA / standardization pipeline (Path A, scripts/lib/ganfp.py FingerprintStandardizer).
+  # Scaler + PCA are fit on TRAIN ONLY (no leakage). DCT fusion is an OPTIONAL additive
+  # second channel (8x8 block-DCT -> 32-dim PCA) concatenated after the residual+spectrum
+  # PCA vector; default off so the benchmark can isolate whether DCT adds signal.
+  pca:
+    components: 64        # residual+spectrum PCA dimensionality (in_dim without DCT)
+    dct_fuse: false       # enable the additive DCT fusion channel
+    dct_components: 32    # DCT PCA dimensionality when dct_fuse is true (in_dim = 64+32=96)
+
 # --- Robustness perturbations (held-out test images only) --------------------
 robustness:
   jpeg_quality: [30, 50, 70]

@@ -67,7 +67,7 @@ Each is a self-contained chunk; exact commands are in `docs/PIPELINE.md` (step n
 | WS1 | Data + index + datasheets (diverse, balanced real class) | `build_master_index.py`, `make_datasheets.py` | `master_metadata.csv`, datasheets |
 | WS2 | Preprocessing variants (scale vs crop, common size 256, PNG) | `prepare_variants.py` | `index_scaled.csv`, `index_cropped.csv` |
 | WS3 | Detection: DE-FAKE (binary) + DCT-SVM, raw vs controlled | `run_defake_batch.py`, `score_defake_detection.py`, `dct_extract_features.py`, `dct_svm.py` | detection metrics |
-| WS4 | Attribution baselines + reproduced GAN-fingerprints | `eval_defake_attribution.py`, `run_ganfp.py` | attribution metrics |
+| WS4 | Attribution baselines + reproduced GAN-fingerprints | `eval_defake_attribution.py`, `train_ganfp.py`, `run_ganfp_infer.py`, `run_ganfp.py` | attribution metrics |
 | WS5 | Fine-tune the attribution head + leave-one-generator-out | `finetune_defake_head.py`, `leave_one_generator_out.py` | trained head, LOGO results |
 | WS6 | Out-of-set analysis (forced labels, confidence, entropy) | `out_of_set_analysis.py` | OOS report |
 | WS7 | Robustness (JPEG/blur/resize/sharpen on held-out test) | `make_split.py`, `robustness_perturb.py` | robustness drops |

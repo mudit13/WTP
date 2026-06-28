@@ -70,8 +70,38 @@ $PY scripts/dct_svm.py --features results/dct_features_scaled.npz \
     --holdout_generators "FLUX.1-schnell" "StyleGAN3-FFHQ"
 
 # 4. (WS4) Attribution. NOTE: pretrained DE-FAKE is binary-only -> attribution comes from
-#    our fine-tuned head (step 5). GAN Fingerprints:
-$PY scripts/run_ganfp.py --mode verify     # then --mode note if no weights
+#    our fine-tuned head (step 5). GAN Fingerprints (Yu2019-inspired) re-implementation in PyTorch
+#    (residual/spectrum fingerprints + _MLPHead): second attribution method for the GAN
+#    images DE-FAKE cannot attribute. No legacy/pretrained weights needed.
+$PY scripts/run_ganfp.py --mode verify     # optional weight-discovery + scope note
+$PY scripts/train_ganfp.py --config $CFG --index results/index_scaled.csv \
+    --out_dir results/ganfp_scaled/ --features_cache results/ganfp_feats_scaled.npz
+$PY scripts/run_ganfp_infer.py --config $CFG --head results/ganfp_scaled/ganfp_head.pt \
+    --index results/index_scaled.csv --out results/ganfp_scaled/ganfp_infer_per_image.csv
+$PY scripts/eval_defake_attribution.py --config $CFG \
+    --predictions results/ganfp_scaled/ganfp_infer_per_image.csv \
+    --out_dir results/ganfp_attr_eval/ --pred_col pred_generator
+
+# 4b. (WS4) GAN Fingerprints: dual path (feature+MLP, CNN) + head-to-head benchmark.
+#     Two attribution paths over the SAME seeded stratified split:
+#       Path A (feature+MLP): residual+FFT-spectrum fingerprints (ganfp.py) -> train-only
+#         PCA/StandardScaler (FingerprintStandardizer, NO leakage) -> defake_head._MLPHead.
+#       Path B (CNN): Yu2019-inspired CNN (ganfp_net.py) - FIXED SRM high-pass front-end
+#         (Fridrich & Kodovsky 2012, 30 filters) + 3 VGG conv blocks + GAP + linear
+#         (~82K params at config channels [16,32,64]), trained on luminance tensors. Trains in
+#         minutes on CPU; use --device cuda for the full-scale run.
+#     Both share the SAME split (defake_head.stratified_split, seed=42) and the SAME per-image
+#     JPEG augmentation (image_ops.make_jpeg_augmenter) so the comparison is apples-to-apples.
+$PY scripts/train_ganfp_cnn.py --config $CFG --index results/index_scaled.csv \
+    --out_dir results/ganfp_cnn_scaled/
+#     Head-to-head benchmark (writes benchmark_metrics.json + per-path CMs + per-image CSVs):
+$PY scripts/benchmark_attribution.py --config $CFG --index results/index_scaled.csv \
+    --out_dir results/bench_scaled --features_cache results/ganfp_feats_scaled.npz
+#     Optional cross-method rows (DE-FAKE / DCT per-image CSVs matched on full_path):
+# $PY scripts/benchmark_attribution.py --config $CFG --index results/index_scaled.csv \
+#     --out_dir results/bench_scaled --features_cache results/ganfp_feats_scaled.npz \
+#     --defake_csv results/finetune_scaled_jpegaug/finetune_per_image.csv \
+#     --dct_csv results/dct_svm_scaled/dct_per_image.csv
 
 # 5. (WS5) Fine-tune head (faithful 1024-dim image+text via reused BLIP captions) + LOGO.
 #     Run BOTH raw and controlled, with DISTINCT caches + out_dirs:

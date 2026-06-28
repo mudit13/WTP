@@ -43,7 +43,9 @@ scientifically reliable evaluation, not maximal accuracy.
 - IMPORTANT: the provided DE-FAKE head is binary-only; there is no pretrained attribution.
   Attribution is produced by our fine-tuned head (section 7) and scored with
   eval_defake_attribution.py (in-set vs out-of-set, confusion matrices).
-- GAN Fingerprints (run_ganfp.py): results or documented reduced scope.
+- GAN Fingerprints (`train_ganfp.py` + `run_ganfp_infer.py`; `lib/ganfp.py`): reproduced in PyTorch
+  (residual/spectrum fingerprints + a small head); attribution scored with
+  `eval_defake_attribution.py`, or documented reduced scope if the full run is infeasible.
 
 ## 7. Retraining / Fine-tuning (Phase E)
 - Frozen CLIP + fine-tuned head adding FLUX/StyleGAN3 (finetune_defake_head.py), faithful

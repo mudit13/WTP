@@ -27,6 +27,17 @@ from lib import io_utils, metrics, schema  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+from sklearn.metrics import roc_curve  # noqa: E402
+
+
+def _best_threshold(y_true, y_score):
+    """Threshold on prob_fake that maximizes balanced accuracy (Youden's J). Reported alongside
+    the default-0.5 metrics so we can separate ranking quality (AUROC) from the operating point.
+    DE-FAKE's default 0.5 is miscalibrated on our face domain (fake-biased)."""
+    fpr, tpr, thr = roc_curve(y_true, y_score)
+    j = tpr - fpr
+    k = int(np.argmax(j))
+    return float(thr[k]), float((tpr[k] + (1.0 - fpr[k])) / 2.0)
 
 
 def _detection(df):
@@ -70,6 +81,14 @@ def main(args):
     logger.info("Rows: %d (excluded %d error rows)", total, errors)
 
     overall = _detection(df)
+    # Also report the balanced-accuracy-optimal operating point (default 0.5 is fake-biased here).
+    if schema.PROB_FAKE in df.columns:
+        yt = schema.is_fake_label(df[schema.LABEL]).astype(int).values
+        ys = pd.to_numeric(df[schema.PROB_FAKE], errors="coerce").values
+        if len(np.unique(yt)) == 2 and np.isfinite(ys).all():
+            thr, bal = _best_threshold(yt, ys)
+            overall["best_threshold"] = thr
+            overall["balanced_accuracy_at_best"] = bal
     logger.info("Overall detection: %s", json.dumps(overall))
 
     per_generator = {g: _group_summary(grp) for g, grp in df.groupby(schema.GENERATOR)}

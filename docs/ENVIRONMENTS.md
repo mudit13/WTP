@@ -78,3 +78,46 @@ git add requirements-*.lock && git commit -m "chore: capture exact venv pins"
 These `requirements-*.lock` files ARE committed (unlike the venvs themselves) so anyone can
 rebuild the exact environment. Note they include the CUDA-tagged torch builds, so install with
 the matching `--extra-index-url https://download.pytorch.org/whl/cuXXX`.
+
+## Installing more packages later (safely)
+
+You can install more packages any time - it will NOT harm the container. Understand where it
+lands:
+
+- The venvs live on the **mounted volume** (`/pitsec_sose26_topic8/venv_*` = `sharedDockerDir`
+  on the host), NOT inside the Docker image. So `venv` installs **persist** across container
+  restarts, are **isolated** from the image, and are **shared** with the whole team.
+- Installing into **system** Python (`sudo pip`, or plain `pip` outside a venv) writes to the
+  container's throwaway layer: lost on restart and can affect others. **Never do this.**
+
+Rules when adding a package:
+
+1. **Install into the venv**, never with sudo:
+   ```bash
+   $WTP_PY_DEFAKE -m pip install <pkg>     # = venv_sd15/bin/python3 -m pip
+   ```
+2. **Never let it upgrade torch or numpy** (breaks the CUDA build). Pin numpy and verify:
+   ```bash
+   PY=$WTP_PY_DEFAKE
+   NUMPY_VER=$($PY -c "import numpy; print(numpy.__version__)")
+   $PY -m pip install "numpy==$NUMPY_VER" <pkg>
+   $PY -c "import torch; print(torch.__version__)"   # expect 2.1.0+cu118, unchanged
+   ```
+   For anything that lists torch as a dependency (e.g. OpenAI CLIP), use `--no-deps` and add
+   its light deps explicitly.
+3. **Document it**: add the package to `requirements.txt` in the same change so the team and
+   future recovery know it is needed.
+4. **Re-freeze after the env stabilizes** (not after every install): `pip freeze >
+   requirements-sd15.lock`, then commit. The lock is recovery insurance, not a lock-out.
+
+### CLIP stack (added manually; the image did NOT ship it)
+
+DE-FAKE needs OpenAI CLIP, which was not pre-installed. It was added to `venv_sd15` as:
+```bash
+PY=$WTP_PY_DEFAKE
+$PY -m pip install --no-deps ftfy regex wcwidth      # CLIP's light deps (no torch pull)
+$PY -m pip install --no-deps git+https://github.com/openai/CLIP.git
+$PY -c "import clip, torch; print('clip OK | torch', torch.__version__)"
+```
+`--no-deps` is essential: a plain `pip install` of CLIP would try to (re)install torch and can
+break the pinned `2.1.0+cu118` build.

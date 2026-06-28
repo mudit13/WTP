@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # WTP - Topic 8 unified repo .gitignore
 # Repo root maps to the container project root (/pitsec_sose26_topic8).
 # Large data, model weights, and venvs live alongside the code but are NEVER
@@ -26,6 +26,9 @@ dataset/
 *.png
 *.jpg
 *.jpeg
+
+# Local GAN-fp prototype sample (downloaded subset; local-only, never committed)
+ganfp_sample*/
 
 # --- Model weights / checkpoints (too large) ---
 models/

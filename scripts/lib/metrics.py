@@ -83,6 +83,43 @@ def attribution_metrics(y_true: Sequence,
     }
 
 
+def attribution_slice(y_true: Sequence,
+                      y_pred: Sequence,
+                      labels: Sequence,
+                      keep_labels: Sequence,
+                      other_label: str = "__other__") -> Dict[str, object]:
+    """Score attribution on a SUBSET of classes (a 'slice').
+
+    Rows whose true label is in `keep_labels` are retained; predictions that fall OUTSIDE
+    `keep_labels` are folded into a single synthetic `other_label` bucket so out-of-slice
+    predictions count as wrong without polluting the per-class report with every excluded
+    class. Returns the same shape of dict as attribution_metrics, but the confusion matrix /
+    per-class report are over (sorted(keep_labels) + [other_label]).
+
+    Used by the GAN-only attribution headline (keep = GAN classes + reals, diffusion folded
+    to 'diffusion_mismatch') and the all-class number keeps using attribution_metrics.
+    """
+    keep_set = set(str(k) for k in keep_labels)
+    y_true = np.asarray([str(x) for x in y_true])
+    y_pred = np.asarray([str(x) for x in y_pred])
+    mask = np.array([t in keep_set for t in y_true])
+    yt = y_true[mask]
+    yp = np.where(np.isin(y_pred[mask], list(keep_set)), y_pred[mask], other_label)
+    slice_labels = sorted(keep_set)
+    if other_label not in slice_labels:
+        slice_labels = slice_labels + [other_label]
+    # Edge case: no true label is in the keep set -> score an empty slice (avoid sklearn's
+    # empty-input crash). Per-class report is empty; accuracies are 0 by convention.
+    if len(yt) == 0:
+        return {
+            "top1_accuracy": 0.0, "macro_f1": 0.0, "balanced_accuracy": 0.0,
+            "labels": slice_labels, "confusion_matrix": [[0] * len(slice_labels)] * len(slice_labels),
+            "per_class": {str(l): {"support": 0, "recall": 0.0} for l in slice_labels},
+            "n": 0,
+        }
+    return attribution_metrics(yt, yp, labels=slice_labels)
+
+
 def predictive_entropy(probs: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     """Shannon entropy (natural log) of each row of a probability matrix.
 

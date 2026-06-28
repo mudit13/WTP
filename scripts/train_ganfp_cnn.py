@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Train the GAN Fingerprints CNN path (Yu2019-inspired, scripts/lib/ganfp_net.py).
+Train the GAN Fingerprints CNN path (Yu2019 faithful, scripts/lib/ganfp_net.py).
 
 Mirrors scripts/train_ganfp.py (Path A: features+_MLPHead) but trains the end-to-end CNN
-(Path B) directly on luminance tensors. The CNN has a FIXED SRM high-pass front-end (Fridrich
-& Kodovsky 2012, 30 filters) + 3 VGG conv blocks + GAP + linear (~82K params at config
-channels [16,32,64]), designed to train in minutes on CPU over a few hundred images/class with
-JPEG augmentation. Yu2019-inspired (learned-fingerprint idea), not a byte-faithful port.
+(Path B) directly on luminance tensors. The CNN has a FIXED high-pass front-end + 3 VGG
+conv blocks + GAP + linear (~82K params), designed to train in minutes on CPU over a few
+hundred images/class with JPEG augmentation.
 
 Two data modes (identical to train_ganfp.py):
   --sample_dir <dir>   LOCAL PROTOTYPE. <dir>/<generator>/*.{png,jpg,jpeg}; folder name is

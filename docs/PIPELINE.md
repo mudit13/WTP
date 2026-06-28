@@ -38,16 +38,23 @@ $PY scripts/make_datasheets.py --metadata $DS/master_metadata.csv --out results/
 $PY scripts/prepare_variants.py --config $CFG --master $DS/master_metadata.csv \
     --out_root $DS/variants --index_dir results/
 
-# 3a. (WS3) DE-FAKE detection. Inference (binary real/fake) on the full index:
-$PY scripts/run_defake_batch.py            # writes $WTP_PRED_CSV
-$PY scripts/run_defake_dffd.py             # writes $WTP_PRED_DFFD_CSV
-$PY scripts/merge_predictions.py           # -> $WTP_PRED_ALL_CSV
+# 3a. (WS3) DE-FAKE detection. Inference (binary real/fake) on the full index.
+#     IMPORTANT: run_defake_batch.py processes EVERY row in master_metadata.csv (no filter).
+#     If your master index already contains the DFFD rows (the current unified build does),
+#     run run_defake_batch.py ALONE - it covers everything (generated fakes, London-DB, CelebA,
+#     and DFFD). Then score $WTP_PRED_CSV directly. Do NOT also run dffd+merge or the DFFD rows
+#     get scored twice.
+$PY scripts/run_defake_batch.py            # writes $WTP_PRED_CSV (ALL rows)
+#     LEGACY split (only if master was built WITHOUT DFFD, then DFFD added separately):
+#$PY scripts/run_defake_dffd.py            # writes $WTP_PRED_DFFD_CSV (dffd_* rows only)
+#$PY scripts/merge_predictions.py          # -> $WTP_PRED_ALL_CSV
 #     To run on a preprocessing variant instead, point at the variant index that
 #     prepare_variants.py actually writes (results/index_scaled.csv / results/index_cropped.csv):
 #       WTP_MASTER_CSV=results/index_scaled.csv \
 #       WTP_PRED_CSV=$DS/defake_predictions_scaled.csv $PY scripts/run_defake_batch.py
-#     Then SCORE the predictions here:
-$PY scripts/score_defake_detection.py --predictions $DS/defake_predictions_all.csv \
+#     Then SCORE the predictions (unified build -> score $WTP_PRED_CSV directly;
+#     legacy split -> score $WTP_PRED_ALL_CSV):
+$PY scripts/score_defake_detection.py --predictions $DS/defake_predictions.csv \
     --out_dir results/defake_detection/
 
 # 3b. (WS3) DCT linear-SVM (Frank2020) on each variant.

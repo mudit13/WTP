@@ -116,6 +116,29 @@ CC BY-NC-SA 4.0 (cite sources). FaceApp is a manipulation, not pure synthesis.
 **Why:** The GOLD review requires processing history per dataset so we can argue the detector
 learns generator traces, not preprocessing artifacts. Recorded for `docs/DATASHEET_TEMPLATE.md`.
 
+## 9. DE-FAKE detection results so far (pretrained binary head)
+
+**What:** Scored the pretrained DE-FAKE detector with `score_defake_detection.py`.
+
+- Baseline index (202 real = FFHQ100 + London-DB102 / 724 fake): balanced acc **0.586**, AUROC **0.710**.
+- Balanced index (722 real = CelebA320 + FFHQ300 + London-DB102 / 724 fake): balanced acc
+  **0.591**, AUROC **0.713**, fake recall **0.80**, real specificity **0.378**.
+- Per real source (specificity): CelebA 27.5%, London-DB 12.7%, FFHQ 57.3%.
+- Per fake (recall): SD1.5 100%, FLUX 99%, StarGAN 91%, PGGAN-v1 83%, PGGAN-v2 73%,
+  FaceApp 70%, **StyleGAN3 46%** (blind spot).
+
+**Why it matters:** AUROC is stable (~0.71) across both real-class compositions, so it is the
+fair cross-run metric (AUPRC shifts with base rate). The low accuracy at the default 0.5
+threshold reflects a **fake-biased, miscalibrated operating point** on out-of-distribution real
+faces (domain shift: DE-FAKE's training reals are MSCOCO-style, not faces), NOT a London-DB
+artifact - confirmed because the over-prediction holds across studio/web/Flickr reals. The
+scorer now also reports the balanced-accuracy-optimal threshold (Youden's J) to separate
+ranking quality from operating-point choice.
+
+**Pipeline note:** the unified `master_metadata.csv` already contains DFFD rows, and
+`run_defake_batch.py` processes every row, so detection inference is `run_defake_batch.py`
+ALONE (no `run_defake_dffd.py` + `merge_predictions.py`, which would double-count DFFD).
+
 ---
 
 ## Open items still needing the supervisor

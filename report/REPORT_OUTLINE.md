@@ -29,10 +29,15 @@ scientifically reliable evaluation, not maximal accuracy.
   artifacts leaking. PNG-only derived images; no stacked JPEG.
 
 ## 5. Detection: Real vs Fake (binary)
-- DE-FAKE classifier: inference via the team's run_defake_batch.py; scored by
-  score_defake_detection.py (overall + per-generator + per-category).
+- DE-FAKE classifier: inference via run_defake_batch.py; scored by score_defake_detection.py
+  (overall + per-generator + per-category + best-threshold).
 - DCT linear-SVM (dct_svm.py): random split + out-of-set holdout.
 - Metrics: AUROC, AUPRC, balanced accuracy, precision, recall, macro-F1.
+- Result so far (pretrained DE-FAKE, balanced 722 real / 724 fake): AUROC 0.713, balanced acc
+  0.591, fake recall 0.80, real specificity 0.378 (CelebA 27.5% / London-DB 12.7% / FFHQ 57.3%);
+  StyleGAN3 is the fake blind spot (46%). AUROC is stable vs the 202-real baseline (0.710),
+  so the low specificity is systematic (domain shift to real faces), not a London-DB artifact.
+  Key framing: ranking is moderate (AUROC ~0.71) but the default 0.5 threshold is fake-biased.
 
 ## 6. Attribution: Which Generator (multi-class)
 - IMPORTANT: the provided DE-FAKE head is binary-only; there is no pretrained attribution.

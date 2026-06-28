@@ -1,0 +1,442 @@
+{
+  "split": {
+    "seed": 42,
+    "test_size": 0.2,
+    "val_size": 0.1,
+    "train": 1137,
+    "val": 163,
+    "test": 326
+  },
+  "classes": [
+    "CelebA",
+    "FFHQ",
+    "FLUX",
+    "FaceApp",
+    "London-DB",
+    "PGGAN-v1",
+    "PGGAN-v2",
+    "SD1.5",
+    "StarGAN",
+    "StyleGAN3-FFHQ"
+  ],
+  "path_a": {
+    "attribution": {
+      "top1_accuracy": 0.7331288343558282,
+      "macro_f1": 0.7579536175173689,
+      "balanced_accuracy": 0.7497727272727273,
+      "labels": [
+        "CelebA",
+        "FFHQ",
+        "FLUX",
+        "FaceApp",
+        "London-DB",
+        "PGGAN-v1",
+        "PGGAN-v2",
+        "SD1.5",
+        "StarGAN",
+        "StyleGAN3-FFHQ"
+      ],
+      "confusion_matrix": [
+        [
+          40,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          29,
+          0,
+          8,
+          0,
+          1,
+          0,
+          2,
+          0,
+          0
+        ],
+        [
+          1,
+          2,
+          18,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          13,
+          0,
+          23,
+          0,
+          1,
+          3,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          20,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          3,
+          0,
+          6,
+          0,
+          18,
+          13,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          3,
+          0,
+          5,
+          0,
+          12,
+          20,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          8,
+          2,
+          0,
+          0,
+          1,
+          0,
+          11,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          39,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          21
+        ]
+      ],
+      "per_class": {
+        "CelebA": {
+          "support": 40,
+          "recall": 1.0
+        },
+        "FFHQ": {
+          "support": 40,
+          "recall": 0.725
+        },
+        "FLUX": {
+          "support": 22,
+          "recall": 0.8181818181818182
+        },
+        "FaceApp": {
+          "support": 40,
+          "recall": 0.575
+        },
+        "London-DB": {
+          "support": 20,
+          "recall": 1.0
+        },
+        "PGGAN-v1": {
+          "support": 40,
+          "recall": 0.45
+        },
+        "PGGAN-v2": {
+          "support": 40,
+          "recall": 0.5
+        },
+        "SD1.5": {
+          "support": 22,
+          "recall": 0.5
+        },
+        "StarGAN": {
+          "support": 40,
+          "recall": 0.975
+        },
+        "StyleGAN3-FFHQ": {
+          "support": 22,
+          "recall": 0.9545454545454546
+        }
+      },
+      "n": 326
+    },
+    "detection": {
+      "accuracy": 0.8711656441717791,
+      "balanced_accuracy": 0.8764159292035398,
+      "precision": 0.9466019417475728,
+      "recall": 0.8628318584070797,
+      "macro_f1": 0.8559343434343434,
+      "n": 326,
+      "auroc": 0.9616814159292035,
+      "auprc": 0.9826836330796078
+    },
+    "in_dim": 64,
+    "pca_components": 64,
+    "dct_fuse": false,
+    "epochs": 40
+  },
+  "path_b": {
+    "attribution": {
+      "top1_accuracy": 0.7975460122699386,
+      "macro_f1": 0.8056203684556786,
+      "balanced_accuracy": 0.8263636363636364,
+      "labels": [
+        "CelebA",
+        "FFHQ",
+        "FLUX",
+        "FaceApp",
+        "London-DB",
+        "PGGAN-v1",
+        "PGGAN-v2",
+        "SD1.5",
+        "StarGAN",
+        "StyleGAN3-FFHQ"
+      ],
+      "confusion_matrix": [
+        [
+          40,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          20,
+          0,
+          5,
+          0,
+          0,
+          0,
+          1,
+          0,
+          14
+        ],
+        [
+          0,
+          0,
+          22,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          3,
+          0,
+          32,
+          0,
+          0,
+          2,
+          0,
+          0,
+          3
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          19,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          35,
+          4,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          2,
+          0,
+          27,
+          11,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          19,
+          0,
+          2
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          40,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          22
+        ]
+      ],
+      "per_class": {
+        "CelebA": {
+          "support": 40,
+          "recall": 1.0
+        },
+        "FFHQ": {
+          "support": 40,
+          "recall": 0.5
+        },
+        "FLUX": {
+          "support": 22,
+          "recall": 1.0
+        },
+        "FaceApp": {
+          "support": 40,
+          "recall": 0.8
+        },
+        "London-DB": {
+          "support": 20,
+          "recall": 0.95
+        },
+        "PGGAN-v1": {
+          "support": 40,
+          "recall": 0.875
+        },
+        "PGGAN-v2": {
+          "support": 40,
+          "recall": 0.275
+        },
+        "SD1.5": {
+          "support": 22,
+          "recall": 0.8636363636363636
+        },
+        "StarGAN": {
+          "support": 40,
+          "recall": 1.0
+        },
+        "StyleGAN3-FFHQ": {
+          "support": 22,
+          "recall": 1.0
+        }
+      },
+      "n": 326
+    },
+    "detection": {
+      "accuracy": 0.9263803680981595,
+      "balanced_accuracy": 0.8883628318584071,
+      "precision": 0.9139344262295082,
+      "recall": 0.9867256637168141,
+      "macro_f1": 0.908534019172317,
+      "n": 326,
+      "auroc": 0.9892035398230088,
+      "auprc": 0.9950890318022172
+    },
+    "params": 81626,
+    "epochs": 30,
+    "channels": [
+      16,
+      32,
+      64
+    ],
+    "common_size": 256
+  },
+  "extras": {
+    "defake_csv": null,
+    "dct_csv": null
+  },
+  "comparison": [
+    {
+      "method": "ganfp_feature_mlp",
+      "top1_accuracy": 0.7331288343558282,
+      "macro_f1": 0.7579536175173689,
+      "balanced_accuracy": 0.7497727272727273,
+      "detection_balanced_accuracy": 0.8764159292035398
+    },
+    {
+      "method": "ganfp_cnn",
+      "top1_accuracy": 0.7975460122699386,
+      "macro_f1": 0.8056203684556786,
+      "balanced_accuracy": 0.8263636363636364,
+      "detection_balanced_accuracy": 0.8883628318584071
+    }
+  ]
+}

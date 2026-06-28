@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-GAN Fingerprints (Yu2019) verification + orchestration.
+GAN Fingerprints (Yu2019) verification + scope-note helper.
+
+NOTE: the actual PyTorch reproduction now lives in scripts/lib/ganfp.py +
+scripts/train_ganfp.py + scripts/run_ganfp_infer.py (residual/spectrum fingerprints + a
+small learned classifier), per GOLD_ALIGNMENT.md / PROJECT_LOG section 5. This script is
+retained as a lightweight weight-discovery + reduced-scope-note helper; the reproduction
+does not depend on legacy pretrained weights.
 
 WTP.md claimed pretrained GAN-Fingerprints weights live in models/, but the supervisor
 email only confirms two DE-FAKE checkpoints there (clip_linear.pt, finetune_clip.pt). This
@@ -18,8 +24,8 @@ Modes:
   note    : write results/ganfp_scope_note.md describing the reduced-scope decision.
 
 Usage:
-  /usr/bin/python3.9 scripts/run_ganfp.py --mode verify
-  /usr/bin/python3.9 scripts/run_ganfp.py --mode note --out results/ganfp_scope_note.md
+  $WTP_PY_DEFAKE scripts/run_ganfp.py --mode verify
+  $WTP_PY_DEFAKE scripts/run_ganfp.py --mode note --out results/ganfp_scope_note.md
 """
 import argparse
 import glob

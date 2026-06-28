@@ -70,47 +70,21 @@ def jpeg_recompress(img: Image.Image, quality: int) -> Image.Image:
 # every image through a random JPEG quality. After that, "has been JPEG-compressed" no longer
 # separates real from fake (Frank 2020 / Wang 2020).
 
-class JpegAugmenter:
-    """Picklable, per-path-deterministic JPEG augmentation callable.
-
-    Applied as (img, path) -> img: pushes every image through a random JPEG quality seeded by
-    a hash of `path`, so the same image always gets the same quality regardless of iteration
-    order or skipped files (Frank2020 / Wang2020 confound control: "has been JPEG-compressed"
-    no longer separates real from fake).
-
-    Implemented as a top-level class (NOT a nested closure) so it pickles cleanly under
-    Windows/torch-spawn DataLoader workers. The previous closure form
-    (make_jpeg_augmenter.<locals>._aug) raised AttributeError when the Dataset+augmenter were
-    pickled to spawn workers with num_workers>0 on win32.
-    """
-
-    def __init__(self, quality_range=(30, 100), seed: int = 42):
-        self.qmin = int(quality_range[0])
-        self.qmax = int(quality_range[1])
-        self.seed = int(seed)
-
-    def __call__(self, img: Image.Image, path: str = "") -> Image.Image:
-        import random as _random
-        import zlib
-        h = zlib.crc32(str(path).encode("utf-8")) & 0xFFFFFFFF
-        rng = _random.Random((self.seed << 32) ^ h)
-        return jpeg_recompress(img, rng.randint(self.qmin, self.qmax))
-
-    # __getstate__/__setstate__ are trivial but explicit: the closure form failed to pickle,
-    # so we make the round-trip explicit (qmin/qmax/seed are plain ints).
-    def __getstate__(self):
-        return {"qmin": self.qmin, "qmax": self.qmax, "seed": self.seed}
-
-    def __setstate__(self, state):
-        self.qmin = state["qmin"]
-        self.qmax = state["qmax"]
-        self.seed = state["seed"]
-
-
 def make_jpeg_augmenter(quality_range=(30, 100), seed: int = 42):
-    """Return a picklable callable(img, path) -> img that applies a per-path-deterministic
-    random JPEG quality. Thin factory over JpegAugmenter (kept for call-site compatibility)."""
-    return JpegAugmenter(quality_range, seed)
+    """Return a callable(img, path) -> img that applies a per-path-deterministic random JPEG
+    quality. Per-path seeding keeps results reproducible and independent of iteration order or
+    skipped files (the same image always gets the same quality)."""
+    import random as _random
+    import zlib
+
+    qmin, qmax = int(quality_range[0]), int(quality_range[1])
+
+    def _aug(img: Image.Image, path: str = "") -> Image.Image:
+        h = zlib.crc32(str(path).encode("utf-8")) & 0xFFFFFFFF
+        rng = _random.Random((int(seed) << 32) ^ h)
+        return jpeg_recompress(img, rng.randint(qmin, qmax))
+
+    return _aug
 
 
 def gaussian_blur(img: Image.Image, sigma: float) -> Image.Image:

@@ -14,13 +14,8 @@ against each paper before final submission.
   "Leveraging Frequency Analysis for Deep Fake Image Recognition." ICML 2020.
   (repo: `/workspace/GANDCTAnalysis`.)
 - **GAN Fingerprints** - Yu, Davis, Fritz. "Attributing Fake Images to GANs: Learning and
-  Analyzing GAN Fingerprints." ICCV 2019. (repo: `/workspace/GANFingerprints`; the legacy code
-  is Chainer/cupy and dead. Our GAN-fp is *Yu2019-inspired*, re-implemented in PyTorch: a
-  hand-crafted residual/spectrum-feature path (`ganfp.py`) and a learned-CNN path
-  (`ganfp_net.py`) with a fixed SRM front-end. Not a byte-faithful port of their code.)
-- **SRM (Spatial Rich Model)** - Fridrich, Kodovsky. "Rich Models for Steganalysis of Digital
-  Images." IEEE TIFS 2012. (the 30 high-pass residual filters we use as the fixed CNN
-  front-end in `ganfp_net.py`.)
+  Analyzing GAN Fingerprints." ICCV 2019. (repo: `/workspace/GANFingerprints`; we reproduce
+  the method in PyTorch rather than running the legacy code.)
 - **CLIP** - Radford et al. "Learning Transferable Visual Models From Natural Language
   Supervision." ICML 2021.
 - **BLIP** - Li, Li, Xiong, Hoi. "BLIP: Bootstrapping Language-Image Pre-training for Unified

@@ -1,11 +1,12 @@
-# Analysis-side dependencies for the WTP Topic 8 repo.
+# Analysis-side + DE-FAKE dependencies for the WTP Topic 8 repo.
 #
-# IMPORTANT: torch, torchvision, clip, and diffusers are ALREADY provided inside the
-# container (system python has torch 1.12.1+cu113 + CLIP; venv_sd15 has torch 2.0.1 +
-# diffusers). Do NOT pip-install or upgrade torch/clip/diffusers in the container - it
-# will break the pinned CUDA builds. The packages below are the lightweight, safe deps
-# used by the data-prep, DCT-SVM, metrics, and plotting scripts.
+# IMPORTANT (container / venv_sd15): torch, torchvision and diffusers are pinned CUDA builds
+# (venv_sd15 has torch 2.1.0+cu118). Do NOT upgrade torch/torchvision/diffusers - it breaks the
+# CUDA build. CLIP is NOT pre-installed; install it WITHOUT deps (see below). When running
+# `pip install -r requirements.txt` in the container, numpy stays pinned (<2.0 below) and you
+# should verify `torch.__version__` afterwards. Full guidance: docs/ENVIRONMENTS.md.
 
+# --- Analysis deps (data-prep, DCT-SVM, metrics, plotting) -------------------
 numpy>=1.21,<2.0
 scipy>=1.7
 scikit-learn>=1.0
@@ -15,3 +16,13 @@ matplotlib>=3.4
 seaborn>=0.11
 pyyaml>=5.4
 tqdm>=4.62
+
+# --- DE-FAKE / BLIP inference deps (venv_sd15) ------------------------------
+# NOTE: timm and fairscale depend on torch; pip keeps the EXISTING pinned torch
+# (only-if-needed strategy) - never let them upgrade it. CLIP must be installed separately
+# with --no-deps so it cannot pull/replace torch:
+#   $WTP_PY_DEFAKE -m pip install --no-deps git+https://github.com/openai/CLIP.git
+ftfy>=6.0
+wcwidth>=0.2
+timm>=0.9
+fairscale>=0.4

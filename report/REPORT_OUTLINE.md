@@ -39,8 +39,13 @@ scientifically reliable evaluation, not maximal accuracy.
   removing the JPEG normalization changes in-set attribution by only ~1.4 pts (raw 96.2% ->
   controlled 94.8% top-1; balanced 95.9% -> 94.5%). So the fine-tuned head relies mostly on
   generator content, not compression/format artifacts - the confound is real but small.
-  HONEST current status: the JPEG-format axis is now measured; the scaled-vs-aspect geometry
-  ablation and the metadata-only classifier are still pending.
+- Geometry (aspect-distortion) confound, MEASURED (scaled/squash vs aspect on the SAME matched
+  fine-tune): in-set attribution balanced acc 95.5% (scaled) vs 93.9% (aspect) - distortion buys
+  only ~1.5 pts. DCT-SVM detection goes the OTHER way (scaled AUROC 0.761 vs aspect 0.777), i.e.
+  distortion does NOT help and slightly hurts. Conclusion: the squash/aspect-distortion confound
+  Dennis flagged is NOT meaningfully exploited by either the attribution head or DCT.
+  HONEST current status: JPEG-format AND scaled-vs-aspect geometry axes are now both measured
+  (small); only the metadata-only classifier probe remains (script done; run not yet synced).
 
 ## 5. Detection: Real vs Fake (binary)
 - DE-FAKE classifier: inference via run_defake_batch.py; scored by score_defake_detection.py
@@ -61,12 +66,14 @@ scientifically reliable evaluation, not maximal accuracy.
 - Cross-method on the CONTROLLED (aspect) set: **DCT-SVM beats DE-FAKE** for binary detection
   (AUROC 0.777 / balanced 0.703 vs 0.674 / 0.560). Frequency artifacts generalize better than
   CLIP-semantic features on normalized data - a concrete argument for the fusion/future-work
-  section. (Note: the existing dct_svm_raw/jpegaug runs are on an older 926-image sample, NOT
-  comparable to the 1446 aspect run; a DCT run on index_scaled@1446 is needed for a clean DCT
-  confound delta.)
-- Out-of-set generalization fails for BOTH methods: DCT-SVM on held-out generators collapses to
-  ~chance (balanced 0.57, AUROC 0.60), mirroring the DE-FAKE attribution collapse - neither
-  method transfers to unseen generators.
+  section.
+- DCT confound delta (clean, matched 1446 set, scaled vs aspect): AUROC 0.761 -> 0.777, balanced
+  0.697 -> 0.703. So for DCT the aspect-distortion confound is negligible (if anything the
+  controlled variant is slightly BETTER) - DCT is reading genuine frequency artifacts, not
+  distortion.
+- Out-of-set generalization fails for BOTH methods: DCT-SVM on held-out generators (FLUX +
+  StyleGAN3, matched 1446 set) collapses to ~chance (balanced 0.54, AUROC 0.62), mirroring the
+  DE-FAKE attribution collapse - neither method transfers to unseen generators.
 
 ## 6. Attribution: Which Generator (multi-class)
 - IMPORTANT: the provided DE-FAKE head is binary-only; there is no pretrained attribution.
@@ -105,6 +112,9 @@ scientifically reliable evaluation, not maximal accuracy.
     consistent (mean conf 0.79, FKR 0.85 @0.5).
   * Unseen GAN (StyleGAN3 held out, n=108): forced to FFHQ 85% (97% to real classes overall) ->
     detection FAILS; StyleGAN3 collapses onto its FFHQ training source (mean conf 0.76, FKR 0.88).
+  * ROBUSTNESS: the same asymmetry reproduces on the raw (JPEG-aug OFF) baseline - StyleGAN3->FFHQ
+    102/108 (FKR 0.95), FLUX->SD1.5 81/108 (FKR 0.87). So the GAN-collapse is not an artifact of
+    the JPEG normalization.
 - Unifying mechanism: face GANs trained on real face datasets (StyleGAN3<-FFHQ; PGGAN/StarGAN/
   FaceApp on face data) collapse onto the real manifold, whereas diffusion generalizes within
   its family. This is consistent across THREE independent measurements: binary detection
@@ -120,8 +130,10 @@ scientifically reliable evaluation, not maximal accuracy.
   uniform PNG + JPEG augmentation + aspect-preserving resize; still a boundary of the work.
 - Aspect-ratio distortion (supervisor-flagged): naive squashing distorts non-square reals only;
   we mitigate with the "aspect" variant and report the scaled-vs-aspect delta.
-- Confound exploitation not fully quantified: we control for it, but the metadata-only /
-  scaled-vs-aspect ablations that would MEASURE how much the model used it are pending.
+- Confound exploitation QUANTIFIED: format axis (raw vs controlled DE-FAKE detection) = ~4 AUROC
+  points (0.713->0.674); geometry axis (scaled vs aspect) = ~1.5 pts for attribution and slightly
+  NEGATIVE for DCT. Net: the confounds are real but small, and removing them does not rescue
+  detection. Remaining gap: the metadata-only classifier probe (script ready; run not yet synced).
 - London-DB resolution confound (tested, not just noted).
 - Closed-set classifiers cannot reject unknown generators (forced labels). QUANTIFIED: ~98% of
   unseen-GAN images are confidently assigned a REAL class (false-known rate 0.96 @0.5); an

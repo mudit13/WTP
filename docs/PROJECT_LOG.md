@@ -178,6 +178,30 @@ FFHQ errors), and out-of-set/LOGO (unseen GANs -> real). Caveat: small per-fake-
 support (~22 each); the out-of-set-> real result is partly confounded by real over-
 representation and the DFFD GANs being face manipulations close to the real manifold.
 
+## 9c. Confound-controlled binary detection + DCT cross-method (aspect variant)
+
+**What:** Re-ran binary detection on the confound-controlled `index_aspect.csv` (same 722 real /
+724 fake set as the balanced baseline) and DCT-SVM on the aspect variant.
+
+**DE-FAKE, confound MEASURED (apples-to-apples, raw originals vs aspect):**
+- AUROC **0.713 -> 0.674** (-0.04); balanced acc 0.591 -> 0.560 (0.641 at Youden's J); real
+  specificity 0.378 -> 0.292; StyleGAN3 recall 0.46 -> 0.51.
+- Reading: the raw format/geometry confound gave DE-FAKE only ~4 AUROC points, and removing it
+  does NOT fix the weak face detection (DE-FAKE's reals are MSCOCO-style, not faces). Honest
+  answer for the detector: confound present but small.
+
+**DCT-SVM (Frank2020) on the controlled set beats DE-FAKE:** AUROC **0.777 / balanced 0.703** vs
+DE-FAKE 0.674 / 0.560. Frequency artifacts generalize better than CLIP-semantic on normalized
+data -> supports feature fusion (future work).
+
+**Out-of-set: both methods fail.** DCT-SVM on held-out generators ~chance (balanced 0.57, AUROC
+0.60), mirroring the DE-FAKE attribution collapse.
+
+**Caveat / still pending:** the existing `dct_svm_raw`/`dct_svm_jpegaug` runs are on an older
+926-image sample (NOT comparable to the 1446 aspect run) - a DCT run on `index_scaled`@1446 is
+needed for a clean DCT confound delta. Also still pending: the metadata-only confound probe
+(Dennis's direct question) and the attribution scaled-vs-aspect comparison.
+
 ## 10. GAN Fingerprints (Yu2019-inspired) reproduced in PyTorch
 
 > **STATUS: PARKED (removed from `main`).** Sections 10-11 are the historical record of the

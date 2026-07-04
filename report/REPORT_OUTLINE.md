@@ -52,6 +52,21 @@ scientifically reliable evaluation, not maximal accuracy.
   StyleGAN3 is the fake blind spot (46%). AUROC is stable vs the 202-real baseline (0.710),
   so the low specificity is systematic (domain shift to real faces), not a London-DB artifact.
   Key framing: ranking is moderate (AUROC ~0.71) but the default 0.5 threshold is fake-biased.
+- Confound-controlled DE-FAKE (SAME 722/724 set, aspect variant vs raw originals - apples-to-
+  apples): AUROC 0.713 -> **0.674** (-0.04), balanced acc 0.591 -> 0.560 (0.641 at Youden's J),
+  real specificity 0.378 -> 0.292. So the raw format/geometry confound gave DE-FAKE only ~4
+  AUROC points; removing it does NOT rescue the weak face detection. StyleGAN3 stays the blind
+  spot (0.46 -> 0.51). This is the measured, honest answer for the detector: confound present
+  but small.
+- Cross-method on the CONTROLLED (aspect) set: **DCT-SVM beats DE-FAKE** for binary detection
+  (AUROC 0.777 / balanced 0.703 vs 0.674 / 0.560). Frequency artifacts generalize better than
+  CLIP-semantic features on normalized data - a concrete argument for the fusion/future-work
+  section. (Note: the existing dct_svm_raw/jpegaug runs are on an older 926-image sample, NOT
+  comparable to the 1446 aspect run; a DCT run on index_scaled@1446 is needed for a clean DCT
+  confound delta.)
+- Out-of-set generalization fails for BOTH methods: DCT-SVM on held-out generators collapses to
+  ~chance (balanced 0.57, AUROC 0.60), mirroring the DE-FAKE attribution collapse - neither
+  method transfers to unseen generators.
 
 ## 6. Attribution: Which Generator (multi-class)
 - IMPORTANT: the provided DE-FAKE head is binary-only; there is no pretrained attribution.

@@ -134,11 +134,23 @@ datasets:
 # --- Attribution label space (human generator names) -------------------------
 # NOTE: the provided DE-FAKE head (clip_linear.pt) is BINARY only (real/fake). There is no
 # pretrained multi-class attribution; attribution is produced by our fine-tuned head.
+#
+# TAXONOMY (must stay consistent - the code enforces it):
+#   real_generators       -> real sources; labeled 'real', EXCLUDED from attribution scoring.
+#   in_set_generators      -> fake generators the fine-tuned head is TRAINED on.
+#   finetune_new_classes   -> fake generators ADDED as trained classes (subset of the trained
+#                             fake set); listed separately only to document what we added.
+#   TRAINED FAKE CLASSES   = in_set_generators UNION finetune_new_classes  (these are "in-set").
+#   out_of_set_generators  -> GENUINELY UNSEEN generators: never trained, only force-scored to
+#                             measure closed-set failure (false-known rate / entropy). Do NOT
+#                             put a trained generator here or the "out-of-set" number is a lie.
+# leave_one_generator_out.py gives the strict generalization number by RETRAINING without a
+# target, so it may hold out in-set generators too (pass them via --targets).
 attribution:
   real_generators: ["London-DB", "FFHQ", "CelebA", "OpenForensics"]
   in_set_generators: ["SD1.5"]
-  out_of_set_generators: ["FLUX.1-schnell", "StyleGAN3-FFHQ", "PGGAN-v1", "PGGAN-v2", "StarGAN", "FaceApp", "SD1.5-img2img"]
   finetune_new_classes: ["FLUX.1-schnell", "StyleGAN3-FFHQ"]
+  out_of_set_generators: ["PGGAN-v1", "PGGAN-v2", "StarGAN", "FaceApp", "SD1.5-img2img"]
 
 # --- Robustness perturbations (held-out test images only) --------------------
 robustness:

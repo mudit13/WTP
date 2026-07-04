@@ -86,6 +86,10 @@ $PY scripts/dct_svm.py --features results/dct_features_scaled.npz \
 #     Faithful 1024-dim image+text features via reused BLIP captions (defake_predictions_all.csv).
 #     Runs on the aspect-preserving variant (confound-controlled geometry). Give raw vs
 #     controlled runs DISTINCT caches + out_dirs.
+#     CLASS SPACE: the head trains on reals + config attribution.in_set_generators UNION
+#     finetune_new_classes. Any OTHER generator in the index is treated as genuinely UNSEEN:
+#     not trained, only force-scored -> written to finetune_unseen_per_image.csv, and merged
+#     (tagged in_set=False) into finetune_per_image.csv for the out-of-set analysis.
 #   --- controlled (JPEG-aug ON) : the headline multi-class attribution result ---
 $PY scripts/finetune_defake_head.py --config $CFG --index results/index_aspect.csv \
     --jpeg_aug on --out_dir results/finetune_aspect_jpegaug/ \
@@ -96,18 +100,23 @@ $PY scripts/finetune_defake_head.py --config $CFG --index results/index_aspect.c
     --jpeg_aug off --out_dir results/finetune_aspect_raw/ \
     --features_cache results/clip_feats_aspect_raw.npz \
     --captions_csv $DS/defake_predictions_all.csv
-#   --- evaluate the controlled run's attribution (in-set vs out-of-set CMs) ---
+#   --- evaluate attribution. in-set/out-of-set is taken from the finetune run's actual class
+#       list (finetune_metrics.json is auto-detected next to --predictions), NOT a static list ---
 $PY scripts/eval_defake_attribution.py --config $CFG \
     --predictions results/finetune_aspect_jpegaug/finetune_per_image.csv \
     --out_dir results/attr_eval_aspect/ --pred_col pred_generator
-#   --- LOGO: the true out-of-set generalization test (train WITHOUT a generator) ---
+#   --- LOGO: the STRICT out-of-set test (retrains WITHOUT the target). Default targets are the
+#       trained fake set; override with --targets to hold out specific generators ---
 $PY scripts/leave_one_generator_out.py --config $CFG --index results/index_aspect.csv \
     --jpeg_aug on --out_dir results/logo_aspect_jpegaug/ \
     --features_cache results/clip_feats_aspect_jpegaug.npz \
     --captions_csv $DS/defake_predictions_all.csv \
     --targets "FLUX.1-schnell" "StyleGAN3-FFHQ"
 
-# 6. (WS6) Out-of-set analysis (confidence/entropy behavior on unseen generators)
+# 6. (WS6) Out-of-set analysis (confidence/entropy on unseen generators). finetune_per_image.csv
+#    already carries BOTH populations (in_set flag), so it alone gives the in-vs-out overlay;
+#    attribution_per_image.csv (from eval) also carries in_set. (LOGO reports its own out-of-set
+#    behavior in logo_summary.json.)
 $PY scripts/out_of_set_analysis.py --config $CFG --out_dir results/oos_aspect/ \
     --inputs finetuned=results/finetune_aspect_jpegaug/finetune_per_image.csv \
              attr_eval=results/attr_eval_aspect/attribution_per_image.csv

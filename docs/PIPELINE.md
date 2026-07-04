@@ -43,7 +43,21 @@ $PY scripts/make_datasheets.py --metadata $DS/master_metadata.csv --out results/
 $PY scripts/prepare_variants.py --config $CFG --master $DS/master_metadata.csv \
     --out_root $DS/variants --index_dir results/
 
+# 2b. (WS2) MEASURE the confound (answers the supervisor directly, not just asserts it).
+#     Metadata-only real/fake separability (width/height/aspect/format, NO pixels):
+#       RAW master -> expect HIGH balanced acc/AUROC (the format/resolution leak is real).
+#       Normalized variant (256 PNG) -> expect ~0.5 (the pipeline removed the leak).
+#     The gap between the two IS the measurement.
+$PY scripts/metadata_confound_probe.py --config $CFG \
+    --metadata $DS/master_metadata.csv --out_dir results/confound_probe_raw/
+$PY scripts/metadata_confound_probe.py --config $CFG \
+    --metadata results/index_aspect.csv --out_dir results/confound_probe_aspect/
+
 # 3a. (WS3) DE-FAKE detection. Inference (binary real/fake) on the full index.
+#     GEOMETRY NOTE: run_defake_batch.py faithfully mirrors DE-FAKE's test.py, which SQUASHES
+#     every image to 224x224 before CLIP. So feeding it RAW originals distorts non-square reals
+#     regardless of variant. To geometry-control DE-FAKE DETECTION, run it on the ASPECT variant
+#     index (already square, aspect-preserved) via WTP_MASTER_CSV below - not the raw master.
 #     IMPORTANT: run_defake_batch.py processes EVERY row in master_metadata.csv (no filter).
 #     If your master index already contains the DFFD rows (the current unified build does),
 #     run run_defake_batch.py ALONE - it covers everything (generated fakes, London-DB, CelebA,

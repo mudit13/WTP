@@ -37,8 +37,11 @@ Details: `docs/SERVER_WORKFLOW.md`. Environments/venvs: `docs/ENVIRONMENTS.md`.
 
 - **Interpreter:** use `$WTP_PY_DEFAKE` (= venv_sd15) for all analysis scripts. Never bare
   `python`. Generation uses its own per-generator venv.
-- **Run on variants:** experiments run on `index_scaled.csv` AND `index_cropped.csv` (the
-  scaling-vs-cropping study).
+- **Run on variants:** `prepare_variants.py` writes THREE indexes - `index_scaled.csv` (squash;
+  DISTORTS non-square images - the uncontrolled reference), `index_cropped.csv` (center crop),
+  and `index_aspect.csv` (aspect-PRESERVING resize+crop). Use **`index_aspect.csv` for the
+  confound-controlled runs** (supervisor request) and compare against `index_scaled.csv` to
+  MEASURE the aspect/format confound. Do NOT default to `index_scaled.csv`.
 - **Raw vs controlled:** always produce both a raw and a JPEG-augmented result, with DISTINCT
   cache/output paths. Defaults: DCT is raw unless `--jpeg_aug`; fine-tune/LOGO are controlled
   by default (`--jpeg_aug auto` -> config), use `--jpeg_aug off` for the raw baseline.
@@ -65,7 +68,7 @@ Each is a self-contained chunk; exact commands are in `docs/PIPELINE.md` (step n
 | WS | Topic | Main scripts | Output |
 |----|-------|--------------|--------|
 | WS1 | Data + index + datasheets (diverse, balanced real class) | `build_master_index.py`, `make_datasheets.py` | `master_metadata.csv`, datasheets |
-| WS2 | Preprocessing variants (scale vs crop, common size 256, PNG) | `prepare_variants.py` | `index_scaled.csv`, `index_cropped.csv` |
+| WS2 | Preprocessing variants (scaled/cropped/**aspect**, common size 256, PNG; aspect = controlled) | `prepare_variants.py` | `index_scaled.csv`, `index_cropped.csv`, `index_aspect.csv` |
 | WS3 | Detection: DE-FAKE (binary) + DCT-SVM, raw vs controlled | `run_defake_batch.py`, `score_defake_detection.py`, `dct_extract_features.py`, `dct_svm.py` | detection metrics |
 | WS4 | Attribution (DE-FAKE multi-class; GAN-fp PARKED on `ganfp-integrated`) | `eval_defake_attribution.py` | attribution metrics |
 | WS5 | Fine-tune the attribution head + leave-one-generator-out | `finetune_defake_head.py`, `leave_one_generator_out.py` | trained head, LOGO results |

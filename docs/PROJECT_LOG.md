@@ -139,6 +139,45 @@ ranking quality from operating-point choice.
 `run_defake_batch.py` processes every row, so detection inference is `run_defake_batch.py`
 ALONE (no `run_defake_dffd.py` + `merge_predictions.py`, which would double-count DFFD).
 
+## 9b. DE-FAKE multi-class attribution results (fine-tuned head, aspect variant)
+
+**What:** Fine-tuned the CLIP+MLP attribution head (`finetune_defake_head.py`) on the
+aspect-preserving variant over 6 classes (reals CelebA/FFHQ/London-DB + trained fakes
+SD1.5/FLUX/StyleGAN3), evaluated with `eval_defake_attribution.py`,
+`leave_one_generator_out.py`, and `out_of_set_analysis.py`. The four DFFD GANs
+(FaceApp/PGGAN-v1/PGGAN-v2/StarGAN) were held out as genuinely UNSEEN and force-scored.
+
+**In-set attribution (held-out test, n=210):**
+- Controlled (JPEG-normalized): top-1 **94.8%**, balanced **94.5%**. Fake-only (eval, n=66):
+  balanced **93.9%**.
+- Per-class recall: FLUX 100%, SD1.5 100%, FFHQ 96.7%, London-DB 95%, CelebA 93.8%,
+  **StyleGAN3 81.8%** (weakest; all 4 errors -> FFHQ).
+
+**Format/JPEG confound, MEASURED (raw vs controlled, both on aspect geometry):**
+- Raw (`--jpeg_aug off`): top-1 **96.2%** / balanced 95.9%. Controlled: 94.8% / 94.5%.
+- Delta only **~1.4 pts** -> the head relies mostly on generator content, not compression/
+  format. Directly answers Dennis: the confound is real but small. (scaled-vs-aspect geometry
+  ablation + metadata-only classifier still pending.)
+
+**Out-of-set (4 unseen GANs, n=400) - the closed-set limitation, quantified:**
+- top-1 = 0 BY CONSTRUCTION (true class absent). Informative signal: **~98% (393/400) of unseen
+  GAN images are forced onto a REAL class** (CelebA/FFHQ) at mean confidence 0.82.
+- false-known rate: **0.96 @0.5**, 0.76 @0.7, **0.44 @0.9**. Entropy separates populations
+  (in-set 0.19 vs out-of-set 0.47) -> entropy-based open-set rejection is a partial fix only.
+
+**LOGO (retrain WITHOUT the target) - THE key finding (family asymmetry):**
+- Unseen DIFFUSION (FLUX out, n=108): forced to the other diffusion SD1.5 **81.5%**; ~94% land
+  on a FAKE class -> detection survives, misattribution is family-consistent.
+- Unseen GAN (StyleGAN3 out, n=108): forced to FFHQ **85%** (97% to real classes) -> detection
+  FAILS; StyleGAN3 collapses onto its FFHQ training source.
+
+**Why it matters:** three independent measurements triangulate the same mechanism - face GANs
+trained on real face datasets collapse onto the real manifold, while diffusion generalizes
+within-family: binary detection (StyleGAN3 46% fake recall), in-set attribution (StyleGAN3->
+FFHQ errors), and out-of-set/LOGO (unseen GANs -> real). Caveat: small per-fake-class test
+support (~22 each); the out-of-set-> real result is partly confounded by real over-
+representation and the DFFD GANs being face manipulations close to the real manifold.
+
 ## 10. GAN Fingerprints (Yu2019-inspired) reproduced in PyTorch
 
 > **STATUS: PARKED (removed from `main`).** Sections 10-11 are the historical record of the

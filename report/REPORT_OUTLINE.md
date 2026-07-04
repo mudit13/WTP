@@ -24,9 +24,17 @@ scientifically reliable evaluation, not maximal accuracy.
 - Why diversity matters: avoids learning the London-DB artifact cluster.
 
 ## 4. Preprocessing Analysis (GOLD concern #2)
-- Scaling vs cropping variants (scripts/prepare_variants.py).
-- Report detection/attribution deltas between variants; large deltas => preprocessing
-  artifacts leaking. PNG-only derived images; no stacked JPEG.
+- Three variants (scripts/prepare_variants.py): "scaled" (squash - DISTORTS non-square
+  images), "cropped" (center crop), "aspect" (resize shortest side + center crop - aspect-
+  PRESERVING). PNG-only derived images; no stacked JPEG.
+- Aspect-ratio caveat (supervisor, Dennis): squashing to 256x256 stretches non-square reals
+  (CelebA 178x218, London-DB) but not the square 512 fakes, so a squash pipeline can REPLACE
+  the format/resolution confound with an aspect-distortion confound. Confound-controlled runs
+  use "aspect"; report the "scaled" vs "aspect" delta as the measurement of that risk.
+- Confound-verification (to answer directly, not just assert): (i) metadata-only classifier
+  (width/height/format) as an upper bound on how separable the confound is; (ii) detection on
+  "scaled" vs "aspect". HONEST current status: confound is controlled-for by design but its
+  actual exploitation by the model is NOT yet measured.
 
 ## 5. Detection: Real vs Fake (binary)
 - DE-FAKE classifier: inference via run_defake_batch.py; scored by score_defake_detection.py
@@ -62,12 +70,20 @@ scientifically reliable evaluation, not maximal accuracy.
 - Performance drop, confidence drop, label-flip rate.
 
 ## 10. Limitations
+- Format/resolution confound: fakes are PNG/512, reals mix JPEG + varied sizes. Controlled by
+  uniform PNG + JPEG augmentation + aspect-preserving resize; still a boundary of the work.
+- Aspect-ratio distortion (supervisor-flagged): naive squashing distorts non-square reals only;
+  we mitigate with the "aspect" variant and report the scaled-vs-aspect delta.
+- Confound exploitation not fully quantified: we control for it, but the metadata-only /
+  scaled-vs-aspect ablations that would MEASURE how much the model used it are pending.
 - London-DB resolution confound (tested, not just noted).
 - Closed-set classifiers cannot reject unknown generators (forced labels).
-- GAN-Fingerprints scope (weights availability / training cost).
+- GAN-Fingerprints is Yu2019-INSPIRED (SRM front-end), re-implemented in PyTorch, not a
+  byte-faithful port; scope/training-cost bounded. (AI-assistance disclosure to be added at
+  final submission.)
 - Small per-generator training set for fine-tuning.
-- Risk of detecting preprocessing history rather than generator traces (mitigations: PNG,
-  scaling/cropping ablation, datasheets).
+- OpenForensics (real+fake in one image, a strong confound control) planned, pending the JSON
+  upload + a face-extraction step.
 
 ## 11. Future Work
 - SOTA open-set methods raised at interim: LIDA (low-bit-plane attribution) and OmniDFA

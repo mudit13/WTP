@@ -1,9 +1,12 @@
 """
 Image preprocessing and perturbation operations.
 
-Two preprocessing strategies are provided per the GOLD review (scaling vs cropping); both
-write lossless PNG to avoid stacking JPEG artifacts. Robustness perturbations deliberately
-DO introduce controlled degradations and are applied to held-out test images only.
+Three preprocessing strategies are provided (scaling vs cropping vs aspect-preserving
+resize+crop); all write lossless PNG to avoid stacking JPEG artifacts. `scale_to` (squash)
+DISTORTS non-square images and can turn the format/resolution confound into an aspect-ratio
+confound (supervisor feedback); `resize_shortest_center_crop` is the aspect-preserving option
+that avoids that. Robustness perturbations deliberately DO introduce controlled degradations
+and are applied to held-out test images only.
 
 ASCII-only; Python 3.9. Uses Pillow only (no GUI).
 """
@@ -44,6 +47,34 @@ def center_crop(img: Image.Image, size: int) -> Image.Image:
                     max(size, int(round(height * scale))))
         img = img.resize(new_size, resample=Image.BICUBIC)
         width, height = img.size
+    left = (width - size) // 2
+    top = (height - size) // 2
+    return img.crop((left, top, left + size, top + size))
+
+
+def resize_shortest_center_crop(img: Image.Image, size: int,
+                                resample=Image.BICUBIC) -> Image.Image:
+    """Strategy C (aspect-PRESERVING): resize so the SHORTER side == size, then center-crop
+    size x size.
+
+    Motivation (supervisor feedback, Dennis): `scale_to` squashes to size x size and therefore
+    DISTORTS the aspect ratio of non-square images. Our fakes are square (512x512) so they
+    downscale cleanly, but non-square reals (CelebA 178x218, London-DB) get stretched. That
+    stretch is itself label-correlated, so a squash pipeline risks REPLACING the format/size
+    confound with an aspect-distortion confound instead of removing it.
+
+    This strategy scales uniformly (shorter side -> size, aspect kept) and then crops the
+    centered size x size window, so NO image is stretched. A square input (e.g. our fakes) is
+    simply downscaled - identical treatment to the reals' scale step - and its crop is a no-op,
+    so real and fake go through the exact same uniform resample. Faces stay centered (unlike
+    `center_crop` on a large native image, which can crop into a tiny non-face patch).
+    """
+    width, height = img.size
+    scale = size / float(min(width, height))
+    new_size = (max(size, int(round(width * scale))),
+                max(size, int(round(height * scale))))
+    img = img.resize(new_size, resample=resample)
+    width, height = img.size
     left = (width - size) // 2
     top = (height - size) // 2
     return img.crop((left, top, left + size, top + size))

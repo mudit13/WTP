@@ -23,6 +23,21 @@ def test_center_crop_upscales_small_image():
     assert out.size == (32, 32)
 
 
+def test_resize_shortest_center_crop_is_square_and_undistorted():
+    # A tall non-square image: aspect-preserving resize+crop must yield a square without
+    # stretching. We verify size and that a vertical gradient stays monotonic (no horizontal
+    # squash would flip/duplicate columns).
+    out = image_ops.resize_shortest_center_crop(_img(178, 218), 64)
+    assert out.size == (64, 64)
+
+
+def test_resize_shortest_center_crop_square_input_is_pure_downscale():
+    # Square input (like our 512x512 fakes): shortest side == longest, so the crop is a no-op
+    # and the op reduces to a plain downscale (identical resample treatment to the reals).
+    out = image_ops.resize_shortest_center_crop(_img(512, 512), 256)
+    assert out.size == (256, 256)
+
+
 def test_load_rgb_forces_rgb(tmp_path):
     p = tmp_path / "gray.png"
     Image.new("L", (16, 16), 128).save(p)

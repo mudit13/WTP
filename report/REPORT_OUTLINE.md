@@ -44,8 +44,15 @@ scientifically reliable evaluation, not maximal accuracy.
   only ~1.5 pts. DCT-SVM detection goes the OTHER way (scaled AUROC 0.761 vs aspect 0.777), i.e.
   distortion does NOT help and slightly hurts. Conclusion: the squash/aspect-distortion confound
   Dennis flagged is NOT meaningfully exploited by either the attribution head or DCT.
-  HONEST current status: JPEG-format AND scaled-vs-aspect geometry axes are now both measured
-  (small); only the metadata-only classifier probe remains (script done; run not yet synced).
+- Metadata-only confound probe, MEASURED (RandomForest on width/height/aspect/log-area/format,
+  NO pixels; metadata_confound_probe.py): on the RAW master, real vs fake is separable at
+  **balanced acc 0.79 / AUROC 0.89** without ever seeing a pixel - the format flags dominate
+  (is_png 0.28 + is_jpeg 0.25 = 53% of importance; resolution adds the rest). After normalization
+  to 256x256 PNG (aspect variant) it collapses to **exactly chance (0.50 / 0.50, all feature
+  importances 0)**. The 0.89 -> 0.50 AUROC gap IS the confound, and the pipeline removes it
+  entirely. Per-source detail: raw metadata mislabels FFHQ reals as fake (they are PNG like the
+  fakes), while JPEG reals (CelebA/London-DB) stay real - confirming format, not content, drives
+  the raw leak. This is the direct, quantified answer to the supervisor's question.
 
 ## 5. Detection: Real vs Fake (binary)
 - DE-FAKE classifier: inference via run_defake_batch.py; scored by score_defake_detection.py
@@ -130,10 +137,12 @@ scientifically reliable evaluation, not maximal accuracy.
   uniform PNG + JPEG augmentation + aspect-preserving resize; still a boundary of the work.
 - Aspect-ratio distortion (supervisor-flagged): naive squashing distorts non-square reals only;
   we mitigate with the "aspect" variant and report the scaled-vs-aspect delta.
-- Confound exploitation QUANTIFIED: format axis (raw vs controlled DE-FAKE detection) = ~4 AUROC
-  points (0.713->0.674); geometry axis (scaled vs aspect) = ~1.5 pts for attribution and slightly
-  NEGATIVE for DCT. Net: the confounds are real but small, and removing them does not rescue
-  detection. Remaining gap: the metadata-only classifier probe (script ready; run not yet synced).
+- Confound exploitation QUANTIFIED (fully): metadata-only upper bound = AUROC 0.89 raw -> 0.50
+  normalized (format flags dominate); format axis on the actual detector (raw vs controlled
+  DE-FAKE) = ~4 AUROC points (0.713->0.674); geometry axis (scaled vs aspect) = ~1.5 pts for
+  attribution and slightly NEGATIVE for DCT. Net: the confound is strongly present in the RAW
+  metadata (0.89) but the normalized pipeline erases it (0.50), and the residual effect on the
+  real models is small - removing it does not rescue detection.
 - London-DB resolution confound (tested, not just noted).
 - Closed-set classifiers cannot reject unknown generators (forced labels). QUANTIFIED: ~98% of
   unseen-GAN images are confidently assigned a REAL class (false-known rate 0.96 @0.5); an

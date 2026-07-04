@@ -201,10 +201,44 @@ script that reports CLIP/DE-FAKE vs GAN-fp-feature vs GAN-fp-CNN side by side. C
 gated via `pytest.importorskip`) the CNN forward shape / param budget / one-step / Dataset.
 `compileall` stays torch-free (every torch import is inside class/method bodies).
 
+## 12. Supervisor feedback (Dennis) + resulting decisions
+
+**What:** Dennis answered our email. Captured here so the decisions are traceable:
+- **GAN-Fingerprints re-implementation: approved.** Caveat: if we use generative AI to
+  re-implement the method, we must **disclose it, not hide it**. -> The team will add the
+  AI-assistance disclosure statement at the final-submission stage (owner: team).
+- **Priority steer:** expanding **DE-FAKE to multi-class (fine-tuned head) should take PRIORITY
+  over GAN-Fingerprints** if treated as separate tasks. -> Next active workstream is
+  `finetune_defake_head.py` (attribution), GAN-fp polish is secondary.
+- **Format/resolution confound:** good observation, note it for the report as a boundary of the
+  work. **Open question he raised:** did the model output actually CONFIRM the data is
+  separable by format/resolution, or is the model only *partially* using it? -> We have NOT yet
+  run that ablation; added it as a planned experiment (see below). Honest current status: the
+  confound is a *design risk we control for*, not yet a *measured effect*.
+- **256px normalization / aspect ratio:** Dennis flagged that squashing every image to
+  256x256 (`scale_to`) **distorts non-square images** (CelebA 178x218, London-DB), while our
+  square 512 fakes downscale cleanly - so squashing risks **replacing** the format/size
+  confound with an **aspect-distortion** confound rather than removing it. -> Added
+  `image_ops.resize_shortest_center_crop` (aspect-PRESERVING: resize shortest side then
+  center-crop, no stretch; square fakes reduce to a pure downscale = identical resample to
+  reals) and a new `"aspect"` variant in `prepare_variants.py`. The confound-controlled runs
+  should use `"aspect"`, not `"scaled"`.
+- **OpenForensics: advised to add it.** Real+fake faces in the SAME image mitigate the
+  confound. Requires preprocessing (parse the per-image JSON, extract + label faces). Dennis is
+  uploading the missing JSON files to the GPU PC (a subset was missing). -> Added to the data
+  backlog (blocked on the JSON upload + a face-extraction script).
+
+**Planned confound-verification experiment (to answer Dennis's question directly):**
+1. Train a trivial classifier on *metadata only* (width, height, on-disk format) -> if it
+   scores high, the confound is real and strong.
+2. Compare DE-FAKE / DCT detection on the `"scaled"` (squashed) vs `"aspect"` (undistorted)
+   variants -> a large drop isolates how much the model leaned on distortion/format.
+3. Report both as a measured result (turns the confound into evidence, per GOLD).
+
 ---
 
 ## Open items still needing the supervisor
 
-See `docs/OPEN_QUESTIONS.md` (local). In short: (A) confirm reproducing GAN-Fingerprints
-ourselves instead of the legacy repo; (B) whether CelebA+FFHQ+London-DB reals suffice or
-OpenForensics is also wanted; (C) the report submission date.
+Answered by Dennis (see section 12): (A) GAN-Fingerprints re-implementation - APPROVED (with AI
+disclosure); (B) reals - ADD OpenForensics (pending JSON upload). Still open: (C) the report
+submission date; and an optional BBB call offered for this Thu/Fri if needed.

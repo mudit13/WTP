@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
-Preprocessing study (GOLD concern #2): emit two PNG variants of every image.
+Preprocessing study (GOLD concern #2): emit PNG variants of every image.
 
-  variant A "scaled"  : whole image resized to common_size x common_size (bicubic)
-  variant B "cropped" : center crop of common_size x common_size (no interpolation)
+  variant A "scaled"   : whole image resized to common_size x common_size (bicubic) - SQUASHES
+                         (distorts) non-square images; kept as the "uncontrolled" reference.
+  variant B "cropped"  : center crop of common_size x common_size (no interpolation)
+  variant C "aspect"   : resize shortest side to common_size, then center-crop (aspect-
+                         PRESERVING; no stretch). Recommended for the confound-controlled runs
+                         because it removes both the format AND the aspect-ratio confound
+                         (supervisor feedback: squashing risks replacing one confound with
+                         another, since only non-square reals get stretched).
 
-Both are lossless PNG so we never stack JPEG artifacts. Running all downstream detection /
-attribution on BOTH variants and comparing deltas is how we test whether detectors react to
+All are lossless PNG so we never stack JPEG artifacts. Running all downstream detection /
+attribution on the variants and comparing deltas is how we test whether detectors react to
 generator traces or to preprocessing.
 
 Reads the master CSV (schema: filename, full_path, label, generator, category,
@@ -41,7 +47,9 @@ def main(args):
     size = int(config.get("common_size", 512))
     df = pd.read_csv(args.master)
 
-    variants = {"scaled": image_ops.scale_to, "cropped": image_ops.center_crop}
+    variants = {"scaled": image_ops.scale_to,
+                "cropped": image_ops.center_crop,
+                "aspect": image_ops.resize_shortest_center_crop}
     rows = {name: [] for name in variants}
 
     n_ok, n_fail = 0, 0

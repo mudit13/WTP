@@ -11,7 +11,8 @@ part. Goal of the project: build and evaluate AI-image **detection** (real vs fa
   generators?
 - **RQ2 - Attribution:** how well can we identify the *source generator*, in-set vs out-of-set?
   (The pretrained DE-FAKE head is binary only, so attribution comes from our own fine-tuned
-  head + a reproduced GAN-fingerprint method.)
+  head. A GAN-fingerprint method was explored but is PARKED on the `ganfp-integrated` branch per
+  the supervisor's steer that DE-FAKE multi-class takes priority.)
 
 Two things shape every experiment, both from the GOLD review:
 1. The **real class** must be diverse and balanced (not just one narrow dataset).
@@ -92,7 +93,12 @@ the indices.)
 
 ## 6. Current status (snapshot)
 
-- Generation (SD1.5, FLUX.1, StyleGAN3) + initial DE-FAKE inference: DONE on the server.
-- Index built (926 images); real class rebalanced in config (London-DB + FFHQ + CelebA).
-- Confound controls in place (common size 256 + JPEG augmentation, wired into the code).
-- Pending supervisor: GAN-fingerprint approach, OpenForensics (optional), report date.
+- Generation (SD1.5, FLUX.1, StyleGAN3) + DE-FAKE inference: DONE on the server.
+- Index built and rebalanced to ~1,446 images (722 real: London-DB + FFHQ + CelebA / 724 fake).
+- Confound controls DONE and MEASURED: metadata-only probe (AUROC 0.89 raw -> 0.50 normalized),
+  scaled-vs-aspect + raw-vs-controlled deltas (all small). See PROJECT_LOG 9b/9c.
+- Detection (DE-FAKE + DCT), attribution (fine-tuned head), LOGO + out-of-set: DONE.
+- Robustness (WS7): DONE - DE-FAKE aggregate accuracy stable under all 8 perturbations, but
+  per-image labels volatile (JPEG q30 flips 33%). See PROJECT_LOG 9d.
+- Remaining: OpenForensics ingestion pending the supervisor's JSON (only external blocker).
+- Pending supervisor: OpenForensics (optional), report/exam date. GAN-fp parked on `ganfp-integrated`.

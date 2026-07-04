@@ -215,6 +215,29 @@ all feature importances 0 - the leak is gone. The 0.89->0.50 gap is the measurem
 FFHQ reals (PNG) get called fake in raw, JPEG reals (CelebA/London-DB) stay real -> confirms
 format, not content, is the raw leak. Confound section is now complete end-to-end.
 
+## 9d. Robustness (WS7) - DE-FAKE binary under perturbation
+
+**What:** Held-out test split (n=290, aspect variant), 8 perturbations via robustness_perturb.py:
+JPEG q30/50/70, Gaussian blur sigma 1/2, resize round-trip 0.5/0.75, sharpen. Clean baseline =
+DE-FAKE on the unperturbed `results/test_index.csv`; each perturbation scored vs it.
+
+**Result - stable metric, unstable predictions:**
+- Aggregate accuracy STABLE: clean 0.555, perturbed 0.524-0.600 (max |drop| 0.045). No collapse.
+- Per-image labels are NOT stable: label-flip rate jpeg30 **0.334**, sharpen **0.303**, jpeg50
+  0.252, blur2 0.186, jpeg70/blur1/resize0.5 ~0.13-0.14, resize0.75 0.107. Aggregate looks flat
+  only because flips are ~symmetric.
+- High-frequency edits (jpeg30, sharpen) drop prob_fake ~0.21 -> since the baseline over-calls
+  faces fake (real spec ~0.29), this slightly RAISES accuracy (0.60). Low-pass edits (blur/resize)
+  nudge prob_fake up, negligible accuracy change.
+
+**Reading:** robustness is entangled with the fake-bias/threshold issue from section 9. DE-FAKE's
+headline number is perturbation-insensitive, but individual decisions are volatile (up to 1/3 flip
+under mild JPEG). Honest characterization for the report; also a caveat that "stable accuracy"
+here partly reflects a near-chance, fake-biased classifier, not genuine invariance.
+
+**Runbook note:** `generate` mode writes only the 8 perturbation indices (no index_clean.csv);
+the clean baseline is `results/test_index.csv` itself. PIPELINE.md updated accordingly.
+
 ## 10. GAN Fingerprints (Yu2019-inspired) reproduced in PyTorch
 
 > **STATUS: PARKED (removed from `main`).** Sections 10-11 are the historical record of the

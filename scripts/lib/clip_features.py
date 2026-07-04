@@ -28,8 +28,9 @@ def get_clip(model_name: str = "ViT-B/32", device: str = "cuda"):
         import torch
     except ImportError as exc:  # pragma: no cover
         raise SystemExit(
-            "CLIP/torch not importable. Use /usr/bin/python3.9 inside the container; "
-            "do not run this from venv_sd15."
+            "CLIP/torch not importable. Run with the DE-FAKE interpreter "
+            "$WTP_PY_DEFAKE (= venv_sd15), which has clip + torch installed; see "
+            "docs/ENVIRONMENTS.md."
         ) from exc
 
     if device == "cuda" and not torch.cuda.is_available():

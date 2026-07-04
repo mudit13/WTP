@@ -32,9 +32,15 @@ scientifically reliable evaluation, not maximal accuracy.
   the format/resolution confound with an aspect-distortion confound. Confound-controlled runs
   use "aspect"; report the "scaled" vs "aspect" delta as the measurement of that risk.
 - Confound-verification (to answer directly, not just assert): (i) metadata-only classifier
-  (width/height/format) as an upper bound on how separable the confound is; (ii) detection on
-  "scaled" vs "aspect". HONEST current status: confound is controlled-for by design but its
-  actual exploitation by the model is NOT yet measured.
+  (width/height/aspect/format, NO pixels) as an upper bound on how separable the confound is -
+  `scripts/metadata_confound_probe.py` (run on raw master vs a normalized variant; the gap is
+  the measurement); (ii) detection/attribution on "scaled" vs "aspect".
+- Format/JPEG confound, MEASURED (raw vs controlled attribution on the aspect variant):
+  removing the JPEG normalization changes in-set attribution by only ~1.4 pts (raw 96.2% ->
+  controlled 94.8% top-1; balanced 95.9% -> 94.5%). So the fine-tuned head relies mostly on
+  generator content, not compression/format artifacts - the confound is real but small.
+  HONEST current status: the JPEG-format axis is now measured; the scaled-vs-aspect geometry
+  ablation and the metadata-only classifier are still pending.
 
 ## 5. Detection: Real vs Fake (binary)
 - DE-FAKE classifier: inference via run_defake_batch.py; scored by score_defake_detection.py
@@ -55,6 +61,11 @@ scientifically reliable evaluation, not maximal accuracy.
 - GAN-Fingerprints (Yu2019) is PARKED as an optional second method (deprioritized per the
   supervisor: DE-FAKE multi-class first). A PyTorch re-implementation exists on the
   `ganfp-integrated` branch; only add it back if time allows.
+- Results (fine-tuned head, controlled/JPEG-normalized aspect variant; 6 classes = 3 reals +
+  SD1.5/FLUX/StyleGAN3): in-set test top-1 94.8% / balanced 94.5% (n=210). Per-class recall:
+  FLUX 100%, SD1.5 100%, FFHQ 96.7%, London-DB 95%, CelebA 93.8%, StyleGAN3 81.8% (weakest -
+  all 4 of its errors -> FFHQ). Fake-only in-set attribution (eval): balanced 93.9% (n=66).
+  Caveat: small per-fake-class support (~22 test each) -> report recalls with that uncertainty.
 
 ## 7. Retraining / Fine-tuning (Phase E)
 - Frozen CLIP + fine-tuned head adding FLUX/StyleGAN3 (finetune_defake_head.py), faithful
@@ -65,6 +76,25 @@ scientifically reliable evaluation, not maximal accuracy.
 - Leave-one-generator-out (leave_one_generator_out.py): forced-label distributions.
 - Confidence/entropy/false-known-rate analysis (out_of_set_analysis.py).
 - This is the project's central scientific contribution.
+- Out-of-set force-scoring (4 unseen DFFD GANs: FaceApp/PGGAN-v1/PGGAN-v2/StarGAN, n=400):
+  top-1 = 0 BY CONSTRUCTION (the true class is absent from the label space; explain this so it
+  is not read as a bug). The informative signal is the forced distribution + confidence:
+  ~98% (393/400) of unseen-GAN images are attributed to a REAL class (CelebA/FFHQ) at mean
+  confidence 0.82; false-known rate 0.96 @0.5, 0.76 @0.7, 0.44 @0.9. So unseen GAN fakes would
+  largely pass as authentic. Entropy DOES separate populations (in-set 0.19 vs out-of-set 0.47),
+  so an entropy/confidence rejection rule could recover some unseen fakes - only a partial fix
+  (44% remain confident at 0.9).
+- LOGO (retrain WITHOUT the target) exposes a family asymmetry - THE key finding:
+  * Unseen DIFFUSION (FLUX held out, n=108): forced to the other diffusion model SD1.5 81.5% of
+    the time; ~94% land on a FAKE class -> detection survives, misattribution is family-
+    consistent (mean conf 0.79, FKR 0.85 @0.5).
+  * Unseen GAN (StyleGAN3 held out, n=108): forced to FFHQ 85% (97% to real classes overall) ->
+    detection FAILS; StyleGAN3 collapses onto its FFHQ training source (mean conf 0.76, FKR 0.88).
+- Unifying mechanism: face GANs trained on real face datasets (StyleGAN3<-FFHQ; PGGAN/StarGAN/
+  FaceApp on face data) collapse onto the real manifold, whereas diffusion generalizes within
+  its family. This is consistent across THREE independent measurements: binary detection
+  (StyleGAN3 46% fake recall), in-set attribution (StyleGAN3->FFHQ errors), and out-of-set/LOGO
+  (unseen GANs -> real). That triangulation is the report's strongest claim.
 
 ## 9. Robustness
 - JPEG/blur/resize/sharpen on held-out test (robustness_perturb.py).
@@ -78,7 +108,9 @@ scientifically reliable evaluation, not maximal accuracy.
 - Confound exploitation not fully quantified: we control for it, but the metadata-only /
   scaled-vs-aspect ablations that would MEASURE how much the model used it are pending.
 - London-DB resolution confound (tested, not just noted).
-- Closed-set classifiers cannot reject unknown generators (forced labels).
+- Closed-set classifiers cannot reject unknown generators (forced labels). QUANTIFIED: ~98% of
+  unseen-GAN images are confidently assigned a REAL class (false-known rate 0.96 @0.5); an
+  entropy-based rejection is only a partial mitigation (44% still confident @0.9).
 - GAN-Fingerprints attribution is out of scope for the current report (parked on the
   `ganfp-integrated` branch); DE-FAKE multi-class attribution is the method of record.
 - Small per-generator training set for fine-tuning.

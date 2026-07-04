@@ -11,7 +11,13 @@ that has a predicted-generator column.
 The script reads a predictions CSV with full_path + a predicted-generator column. True
 generator labels come from that CSV if present (true_generator), otherwise by merging with
 the master CSV on full_path. Generators are the human names from config (SD1.5,
-FLUX.1-schnell, ...). Splits by config in_set/out_of_set lists.
+FLUX.1-schnell, ...).
+
+IN-SET vs OUT-OF-SET is decided by what the head ACTUALLY trained on, not a static config
+list: it uses the per-image `in_set` column (written by finetune) if present, else the trained
+`classes` list (finetune_metrics.json / --classes_json / --trained_classes), and only falls
+back to config.in_set_generators with a warning. This prevents reporting held-out samples of a
+TRAINED generator as if they were an out-of-set generalization result.
 
 Outputs attribution metrics (top-1, macro-F1, balanced accuracy), confusion matrices
 (PNG + CSV), and a normalized per-image export for the out-of-set analysis.
@@ -35,30 +41,45 @@ import pandas as pd  # noqa: E402
 
 
 def _resolve_truth(pred, master_csv, logger):
-    """Return a df with columns: full_path, true_generator, category, pred_generator,
-    confidence(optional)."""
+    """Return a df carrying at least full_path + true_generator (+ any prediction columns)."""
     if "true_generator" in pred.columns:
-        df = pred.copy()
-        if schema.CATEGORY not in df.columns and master_csv:
-            meta = pd.read_csv(master_csv)[[schema.PATH, schema.CATEGORY]]
-            df = df.merge(meta, on=schema.PATH, how="left")
-        return df
+        return pred.copy()
     if not master_csv:
         raise SystemExit("Predictions lack true_generator and no --master given.")
-    meta = pd.read_csv(master_csv)[[schema.PATH, schema.GENERATOR, schema.CATEGORY]]
+    meta = pd.read_csv(master_csv)[[schema.PATH, schema.GENERATOR]]
     df = pred.merge(meta, on=schema.PATH, how="inner")
     df = df.rename(columns={schema.GENERATOR: "true_generator"})
     logger.info("Merged %d rows with master truth", len(df))
     return df
 
 
+def _load_trained_classes(args, logger):
+    """The trained class list decides what is in-set. Priority: --trained_classes (explicit)
+    > --classes_json > a finetune_metrics.json sitting next to the predictions CSV. Returns a
+    set of class names, or None if nothing is available (caller then falls back to config)."""
+    if args.trained_classes:
+        return set(args.trained_classes)
+    candidates = [args.classes_json,
+                  os.path.join(os.path.dirname(os.path.abspath(args.predictions)),
+                               "finetune_metrics.json")]
+    for path in candidates:
+        if path and os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            cls = data.get("classes")
+            if cls:
+                logger.info("Trained classes from %s: %s", path, cls)
+                return set(cls)
+    return None
+
+
 def main(args):
     logger = io_utils.setup_logging("eval_defake_attribution")
     io_utils.ensure_dir(args.out_dir)
     config = io_utils.load_config(args.config)
-    in_set = set(config["attribution"]["in_set_generators"])
-    out_set = set(config["attribution"]["out_of_set_generators"])
+    in_set_cfg = set(config["attribution"]["in_set_generators"])
     real_gens = set(config["attribution"].get("real_generators", []))
+    trained = _load_trained_classes(args, logger)
 
     pred = pd.read_csv(args.predictions)
     if args.pred_col not in pred.columns:
@@ -68,6 +89,22 @@ def main(args):
     # Attribution is over fakes (exclude real-source rows).
     df = df[~df["true_generator"].isin(real_gens)].copy()
     logger.info("Attribution rows (fake only): %d", len(df))
+
+    # Decide in-set membership from GROUND TRUTH about what was trained, not a static config
+    # list. Priority: per-image `in_set` column (written by finetune) > trained-class list >
+    # config in_set_generators (with a loud warning, since that can misclassify trained gens).
+    if "in_set" in df.columns:
+        is_in = df["in_set"].astype(bool)
+        logger.info("in/out-of-set from per-image 'in_set' column")
+    elif trained is not None:
+        is_in = df["true_generator"].isin(trained - real_gens)
+        logger.info("in/out-of-set from trained-class list")
+    else:
+        logger.warning("No trained-class info (no in_set column / --classes_json / "
+                       "finetune_metrics.json); falling back to CONFIG in_set_generators - this "
+                       "may misclassify trained generators as out-of-set.")
+        is_in = df["true_generator"].isin(in_set_cfg)
+    df["in_set"] = is_in.values
 
     def evaluate(subset, tag):
         if subset.empty:
@@ -88,15 +125,14 @@ def main(args):
 
     results = {
         "all_fakes": evaluate(df, "all_fakes"),
-        "in_set": evaluate(df[df["true_generator"].isin(in_set)], "in_set"),
-        "out_of_set": evaluate(df[df["true_generator"].isin(out_set)], "out_of_set"),
+        "in_set": evaluate(df[df["in_set"]], "in_set"),
+        "out_of_set": evaluate(df[~df["in_set"]], "out_of_set"),
     }
     with open(os.path.join(args.out_dir, "attribution_metrics.json"), "w", encoding="utf-8") as fh:
         json.dump(results, fh, indent=2)
 
-    export = df[[schema.PATH, "true_generator", args.pred_col]].copy()
+    export = df[[schema.PATH, "true_generator", args.pred_col, "in_set"]].copy()
     export = export.rename(columns={args.pred_col: "pred_generator"})
-    export["in_set"] = export["true_generator"].isin(in_set)
     if "confidence" in df.columns:
         export["confidence"] = df["confidence"].values
     export.to_csv(os.path.join(args.out_dir, "attribution_per_image.csv"), index=False)
@@ -113,4 +149,9 @@ if __name__ == "__main__":
                         help="master_metadata.csv (needed if predictions lack true_generator)")
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--pred_col", default="pred_generator")
+    parser.add_argument("--classes_json", default=None,
+                        help="finetune_metrics.json with the trained 'classes' list (defines "
+                             "in-set). Auto-detected next to --predictions if omitted.")
+    parser.add_argument("--trained_classes", nargs="*", default=None,
+                        help="Explicit trained class names (overrides --classes_json).")
     main(parser.parse_args())

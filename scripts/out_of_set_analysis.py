@@ -11,9 +11,11 @@ out-of-set by the true generator. It then reports:
 and renders overlaid confidence histograms.
 
 NOTE: there is no pretrained DE-FAKE attribution (the provided head is binary), so the
-inputs here come from our fine-tuned head (finetune_per_image.csv) and/or the attribution
-evaluator (attribution_per_image.csv). Each per-image CSV needs columns: true_generator,
-pred_generator, confidence[, entropy].
+inputs here come from our fine-tuned head (finetune_per_image.csv, which now contains BOTH the
+in-set test split and the force-scored unseen generators) and/or the attribution evaluator
+(attribution_per_image.csv). Each per-image CSV needs columns: true_generator, pred_generator,
+confidence[, entropy]. In/out-of-set uses the `in_set` column when present (ground truth from
+the producing script), else the config out_of_set list.
 
 Usage:
   $WTP_PY_DEFAKE scripts/out_of_set_analysis.py --config configs/config.yaml \
@@ -45,7 +47,12 @@ def _parse_inputs(pairs):
 
 def _analyze_one(name, df, out_set, thresholds, logger):
     df = df.copy()
-    df["is_out"] = df["true_generator"].astype(str).isin(out_set)
+    # Prefer the ground-truth `in_set` flag written by the producing script (finetune/eval);
+    # only fall back to the config out-of-set list when that column is absent.
+    if "in_set" in df.columns:
+        df["is_out"] = ~df["in_set"].astype(bool)
+    else:
+        df["is_out"] = df["true_generator"].astype(str).isin(out_set)
     out_df = df[df["is_out"]]
     in_df = df[~df["is_out"]]
 
@@ -109,6 +116,10 @@ def main(args):
         df = pd.read_csv(path)
         if "confidence" not in df.columns:
             logger.warning("%s has no confidence column; skipping", name)
+            continue
+        if "in_set" not in df.columns and "true_generator" not in df.columns:
+            logger.warning("%s has neither 'in_set' nor 'true_generator'; cannot split "
+                           "in/out-of-set, skipping", name)
             continue
         result, in_df, out_df = _analyze_one(name, df, out_set, thresholds, logger)
         summary[name] = result

@@ -48,7 +48,13 @@ def main(args):
         force=args.recompute_features, captions_csv=args.captions_csv,
         jpeg_aug=jpeg_aug, jpeg_quality_range=qrange, seed=seed)
     all_generators = sorted(set(generator))
-    targets = args.targets or config["attribution"]["out_of_set_generators"]
+    # Default targets = the TRAINED fake set (in_set + finetune_new_classes): holding one of
+    # these out is the real generalization ablation. (A never-trained generator is already
+    # "out" by construction - finetune force-scores those.) Override with --targets.
+    attr = config.get("attribution", {}) or {}
+    default_targets = list(dict.fromkeys(
+        list(attr.get("in_set_generators", [])) + list(attr.get("finetune_new_classes", []))))
+    targets = args.targets or default_targets
     targets = [t for t in targets if t in all_generators]
     logger.info("Generators present: %s; LOGO targets: %s", all_generators, targets)
 
@@ -109,7 +115,8 @@ if __name__ == "__main__":
     parser.add_argument("--captions_csv", default=None,
                         help="Optional predictions CSV for faithful 1024-dim image+text features")
     parser.add_argument("--targets", nargs="*", default=None,
-                        help="Generators to hold out (default: config out_of_set list)")
+                        help="Generators to hold out (default: trained fake set = "
+                             "in_set_generators + finetune_new_classes)")
     parser.add_argument("--jpeg_aug", choices=["auto", "on", "off"], default="auto",
                         help="JPEG-augment features (auto = use config.augmentation.jpeg_train)")
     parser.add_argument("--conf_threshold", type=float, default=0.5)

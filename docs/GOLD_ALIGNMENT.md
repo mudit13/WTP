@@ -10,7 +10,7 @@ kept by the team, not committed.)
 | # | GOLD guidance | What we do | Where |
 |---|---------------|------------|-------|
 | 1 | Real class is too narrow (London-DB only) - diversify | Real class = London-DB (studio) + FFHQ (Flickr) + CelebA (web), balanced ~722 vs 724 fake | `configs/config.yaml` (datasets, attribution.real_generators) |
-| 2 | Avoid learning preprocessing artifacts; study scaling vs cropping | Scaling and center-crop variants, lossless PNG, common size 256; raw-vs-normalized reporting | `scripts/prepare_variants.py`, `scripts/lib/image_ops.py`, `configs/config.yaml` (common_size, output_format) |
+| 2 | Avoid learning preprocessing artifacts; study scaling vs cropping | Scaled (squash), center-crop, AND aspect-preserving variants (aspect = confound-controlled default), lossless PNG, common size 256; raw-vs-normalized reporting + metadata-only confound probe | `scripts/prepare_variants.py`, `scripts/lib/image_ops.py`, `scripts/metadata_confound_probe.py`, `configs/config.yaml` |
 | 2b| Compression/format must not leak the label | Uniform random JPEG augmentation on all classes at training | `configs/config.yaml` (augmentation), `image_ops.make_jpeg_augmenter`, `dct_extract_features --jpeg_aug`, `finetune/LOGO --jpeg_aug` |
 | 3 | Retraining/fine-tuning DE-FAKE is allowed/encouraged | Freeze CLIP, fine-tune a small head to ADD generators as real classes | `scripts/finetune_defake_head.py`, `scripts/lib/defake_head.py` |
 | 4 | Test out-of-set generalization (unseen generators) | Leave-one-generator-out + out-of-set confidence/entropy analysis | `scripts/leave_one_generator_out.py`, `scripts/out_of_set_analysis.py` |

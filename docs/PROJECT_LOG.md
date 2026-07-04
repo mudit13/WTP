@@ -141,6 +141,11 @@ ALONE (no `run_defake_dffd.py` + `merge_predictions.py`, which would double-coun
 
 ## 10. GAN Fingerprints (Yu2019-inspired) reproduced in PyTorch
 
+> **STATUS: PARKED (removed from `main`).** Sections 10-11 are the historical record of the
+> GAN-fp exploration. Per the supervisor (DE-FAKE multi-class attribution takes priority), the
+> GAN-fp code was removed from `main` and preserved on the `ganfp-integrated` branch. Re-add
+> only if time allows after the DE-FAKE attribution deliverable.
+
 **What:** Added a GAN-fp attribution path as a second method beside the CLIP/DE-FAKE head.
 `scripts/lib/ganfp.py` extracts residual + FFT-spectrum fingerprint features (luminance,
 downsampled to a fixed grid, L2-normalized); `scripts/train_ganfp.py` trains

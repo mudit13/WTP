@@ -207,9 +207,13 @@ data -> supports feature fusion (future work).
 - **LOGO raw baseline (JPEG-aug OFF)** reproduces the GAN-collapse asymmetry: StyleGAN3->FFHQ
   102/108 (FKR 0.95), FLUX->SD1.5 81/108 (FKR 0.87). The finding is not a normalization artifact.
 
-**Still pending:** ONLY the metadata-only confound probe (`confound_probe_raw/`,
-`confound_probe_aspect/`) - Dennis's most direct question. Script is ready and reportedly run,
-but the output dirs are not yet synced into the project `results/` folder.
+**Metadata-only confound probe (Dennis's direct question) - DONE:** RandomForest on
+width/height/aspect/log-area/format ONLY (no pixels). RAW master: balanced acc **0.79** /
+AUROC **0.89** - real vs fake is strongly separable from metadata alone, driven by format
+(is_png 0.28 + is_jpeg 0.25 = 53% importance). Normalized aspect variant: **0.50 / 0.50** with
+all feature importances 0 - the leak is gone. The 0.89->0.50 gap is the measurement. Per-source:
+FFHQ reals (PNG) get called fake in raw, JPEG reals (CelebA/London-DB) stay real -> confirms
+format, not content, is the raw leak. Confound section is now complete end-to-end.
 
 ## 10. GAN Fingerprints (Yu2019-inspired) reproduced in PyTorch
 

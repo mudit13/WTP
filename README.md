@@ -74,7 +74,7 @@ matching the team's working `run_defake_batch.py`.
 | DE-FAKE inference + THIS repo's scripts | `venv_sd15/bin/python3` (= `$WTP_PY_DEFAKE`) |
 
 Never use bare `python`. See `docs/PIPELINE.md` for the full run order and
-`docs/REPORT_OUTLINE.md` for the report structure.
+`report/REPORT_OUTLINE.md` for the report structure.
 
 ## Security note (model/feature loading)
 

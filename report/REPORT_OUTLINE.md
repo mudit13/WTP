@@ -129,8 +129,22 @@ scientifically reliable evaluation, not maximal accuracy.
   (unseen GANs -> real). That triangulation is the report's strongest claim.
 
 ## 9. Robustness
-- JPEG/blur/resize/sharpen on held-out test (robustness_perturb.py).
-- Performance drop, confidence drop, label-flip rate.
+- JPEG/blur/resize/sharpen on the held-out test split (n=290, aspect variant; robustness_perturb.py).
+  Metrics: accuracy drop (clean-perturbed), prob_fake drop, per-image label-flip rate.
+- Headline: aggregate accuracy is STABLE under every perturbation - clean 0.555, perturbed range
+  0.524-0.600 (max |drop| 0.045). No catastrophic degradation. BUT the clean detector is already
+  weak/fake-biased (~chance), so aggregate stability is NOT strong evidence of robustness.
+- The per-image view contradicts the aggregate: predictions are NOT stable. JPEG q30 flips
+  **33.4%** of labels and sharpening **30.3%** (jpeg50 25.2%, blur2 18.6%, others 11-14%). The
+  aggregate looks flat only because the flips are roughly symmetric, not because decisions hold.
+- Direction: high-frequency edits (JPEG q30, sharpen) DROP prob_fake the most (~0.21) and, because
+  the baseline over-calls faces "fake" (real specificity ~0.29, section 5), this actually RAISES
+  accuracy slightly (jpeg30 0.60, sharpen 0.60). Low-pass edits (blur, resize) nudge prob_fake up
+  a little and barely move accuracy. So robustness is entangled with the threshold/fake-bias
+  problem: perturbations that push toward "real" happen to help a fake-biased detector.
+- Takeaway for the report: DE-FAKE's aggregate score is perturbation-insensitive but its
+  individual decisions are volatile (up to 1/3 flip under mild JPEG), which is the honest robustness
+  characterization - stable-looking metric, unstable predictions.
 
 ## 10. Limitations
 - Format/resolution confound: fakes are PNG/512, reals mix JPEG + varied sizes. Controlled by

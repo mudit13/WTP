@@ -135,14 +135,26 @@ $PY scripts/out_of_set_analysis.py --config $CFG --out_dir results/oos_aspect/ \
     --inputs finetuned=results/finetune_aspect_jpegaug/finetune_per_image.csv \
              attr_eval=results/attr_eval_aspect/attribution_per_image.csv
 
-# 7. (WS7) Robustness on held-out test only
-$PY scripts/make_split.py --config $CFG --index results/index_scaled.csv \
+# 7. (WS7) Robustness on held-out test only.
+#     generate writes ONLY the 8 perturbation indices (index_jpeg30.csv ... index_sharpen1.csv);
+#     there is NO index_clean.csv - the CLEAN baseline is results/test_index.csv itself.
+$PY scripts/make_split.py --config $CFG --index results/index_aspect.csv \
     --train_out results/train_index.csv --test_out results/test_index.csv
 $PY scripts/robustness_perturb.py --mode generate --config $CFG \
     --index results/test_index.csv --out_root $DS/robust --index_dir results/robust/
-#   run DE-FAKE on each results/robust/index_*.csv (via run_defake_batch.py), then:
-$PY scripts/robustness_perturb.py --mode score --clean results/clean_pred.csv \
-    --perturbed results/jpeg30_pred.csv --out results/robust/jpeg30_drop.json
+#   CLEAN baseline = DE-FAKE on the unperturbed test set:
+WTP_MASTER_CSV=results/test_index.csv \
+WTP_PRED_CSV=$DS/robust_clean_pred.csv $PY scripts/run_defake_batch.py
+#   each perturbation (perturbed pred carries source_path -> the scorer joins on it):
+for name in jpeg30 jpeg50 jpeg70 blur1 blur2 resize0.5 resize0.75 sharpen1; do
+  WTP_MASTER_CSV=results/robust/index_${name}.csv \
+  WTP_PRED_CSV=$DS/robust_${name}_pred.csv $PY scripts/run_defake_batch.py
+done
+#   score each perturbation vs the clean baseline:
+for name in jpeg30 jpeg50 jpeg70 blur1 blur2 resize0.5 resize0.75 sharpen1; do
+  $PY scripts/robustness_perturb.py --mode score --clean $DS/robust_clean_pred.csv \
+      --perturbed $DS/robust_${name}_pred.csv --out results/robust/${name}_drop.json
+done
 
 # 8. (WS8) Aggregate for the report
 $PY scripts/aggregate_results.py --results_dir results/ --out results/REPORT_SUMMARY.md

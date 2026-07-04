@@ -27,11 +27,12 @@ kept by the team, not committed.)
   pretrained multi-class attribution. So attribution comes from our fine-tuned head (item 3),
   and the report frames RQ2 as "can a fine-tuned head attribute in-set vs out-of-set".
 
-- **GAN-Fingerprints.** The repo on the server is code-only and runs on a deprecated stack
-  (Chainer/cupy/CUDA 10). Rather than run the legacy code, we reproduce the fingerprint method
-  ourselves in PyTorch over our generators (residual/spectrum fingerprints + a small learned
-  classifier) as a second attribution method next to the CLIP head. (Pending supervisor
-  confirmation - see `docs/OPEN_QUESTIONS.md`.)
+- **GAN-Fingerprints (PARKED).** The repo on the server is code-only and runs on a deprecated
+  stack (Chainer/cupy/CUDA 10). We explored a PyTorch re-implementation (residual/spectrum
+  features + a learned CNN with an SRM front-end) as an optional second attribution method, but
+  per the supervisor's steer (DE-FAKE multi-class attribution takes priority) it is now
+  DEPRIORITIZED and kept off `main`. The full implementation is preserved on the
+  `ganfp-integrated` branch and can be re-added later if time allows.
 
 - **Preprocessing study is now central, not cosmetic.** Inspecting the data showed format and
   resolution almost perfectly predict the label (reals include JPEG; fakes are all PNG;

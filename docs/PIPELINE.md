@@ -16,8 +16,11 @@ everything here; generation uses the per-generator venvs and is already done.
   DIFFERENT `--features_cache` (or `--out`) and `--out_dir` paths, or you will overwrite/reuse
   the wrong features. The feature cache also refuses to reuse a clean cache for an aug run, but
   keep the names distinct anyway.
-- **Variants:** every experiment is run on a preprocessing variant index (`index_scaled.csv`
-  and `index_cropped.csv`) to keep the scaling-vs-cropping comparison clean.
+- **Variants:** every experiment is run on a preprocessing variant index. `prepare_variants.py`
+  writes three: `index_scaled.csv` (squash - DISTORTS non-square images; the uncontrolled
+  reference), `index_cropped.csv` (center crop), and `index_aspect.csv` (aspect-PRESERVING
+  resize+crop; no stretch). Use **`index_aspect.csv` for the confound-controlled runs** and
+  compare against `index_scaled.csv` to MEASURE the aspect/format confound (supervisor request).
 
 ```bash
 export $(grep -v '^#' configs/paths.env | xargs)
@@ -34,7 +37,9 @@ $PY scripts/build_master_index.py --config $CFG --out $DS/master_metadata.csv \
 #     (pending the supervisor), then rebuild. Generate datasheets:
 $PY scripts/make_datasheets.py --metadata $DS/master_metadata.csv --out results/datasheets.md
 
-# 2. (WS2) Preprocessing variants (scaled + cropped PNG)
+# 2. (WS2) Preprocessing variants -> writes index_{scaled,cropped,aspect}.csv.
+#     "aspect" = aspect-preserving (no stretch) -> use for the confound-controlled runs.
+#     "scaled" (squash) = the uncontrolled reference for the confound comparison.
 $PY scripts/prepare_variants.py --config $CFG --master $DS/master_metadata.csv \
     --out_root $DS/variants --index_dir results/
 
@@ -69,67 +74,43 @@ $PY scripts/dct_svm.py --features results/dct_features_scaled.npz \
     --out_dir results/dct_svm_oos/ --mode out_of_set \
     --holdout_generators "FLUX.1-schnell" "StyleGAN3-FFHQ"
 
-# 4. (WS4) Attribution. NOTE: pretrained DE-FAKE is binary-only -> attribution comes from
-#    our fine-tuned head (step 5). GAN Fingerprints (Yu2019-inspired) re-implementation in PyTorch
-#    (residual/spectrum fingerprints + _MLPHead): second attribution method for the GAN
-#    images DE-FAKE cannot attribute. No legacy/pretrained weights needed.
-$PY scripts/run_ganfp.py --mode verify     # optional weight-discovery + scope note
-$PY scripts/train_ganfp.py --config $CFG --index results/index_scaled.csv \
-    --out_dir results/ganfp_scaled/ --features_cache results/ganfp_feats_scaled.npz
-$PY scripts/run_ganfp_infer.py --config $CFG --head results/ganfp_scaled/ganfp_head.pt \
-    --index results/index_scaled.csv --out results/ganfp_scaled/ganfp_infer_per_image.csv
-$PY scripts/eval_defake_attribution.py --config $CFG \
-    --predictions results/ganfp_scaled/ganfp_infer_per_image.csv \
-    --out_dir results/ganfp_attr_eval/ --pred_col pred_generator
+# 4. (WS4) GAN Fingerprints attribution -- PARKED, not on main.
+#    A team decision (PR #5) removed the GAN-fp code from main; per the supervisor, DE-FAKE
+#    multi-class attribution (WS5) takes PRIORITY over GAN-Fingerprints. The full GAN-fp
+#    implementation (feature + CNN paths, faithful Fridrich-Kodovsky SRM front-end, benchmark)
+#    is preserved on branch `ganfp-integrated` (origin/ganfp-integrated). To resume it later:
+#      git checkout ganfp-integrated
+#    Do NOT run ganfp scripts from main -- they are intentionally absent here.
 
-# 4b. (WS4) GAN Fingerprints: dual path (feature+MLP, CNN) + head-to-head benchmark.
-#     Two attribution paths over the SAME seeded stratified split:
-#       Path A (feature+MLP): residual+FFT-spectrum fingerprints (ganfp.py) -> train-only
-#         PCA/StandardScaler (FingerprintStandardizer, NO leakage) -> defake_head._MLPHead.
-#       Path B (CNN): Yu2019-inspired CNN (ganfp_net.py) - FIXED SRM high-pass front-end
-#         (Fridrich & Kodovsky 2012, 30 filters) + 3 VGG conv blocks + GAP + linear
-#         (~82K params at config channels [16,32,64]), trained on luminance tensors. Trains in
-#         minutes on CPU; use --device cuda for the full-scale run.
-#     Both share the SAME split (defake_head.stratified_split, seed=42) and the SAME per-image
-#     JPEG augmentation (image_ops.make_jpeg_augmenter) so the comparison is apples-to-apples.
-$PY scripts/train_ganfp_cnn.py --config $CFG --index results/index_scaled.csv \
-    --out_dir results/ganfp_cnn_scaled/
-#     Head-to-head benchmark (writes benchmark_metrics.json + per-path CMs + per-image CSVs):
-$PY scripts/benchmark_attribution.py --config $CFG --index results/index_scaled.csv \
-    --out_dir results/bench_scaled --features_cache results/ganfp_feats_scaled.npz
-#     Optional cross-method rows (DE-FAKE / DCT per-image CSVs matched on full_path):
-# $PY scripts/benchmark_attribution.py --config $CFG --index results/index_scaled.csv \
-#     --out_dir results/bench_scaled --features_cache results/ganfp_feats_scaled.npz \
-#     --defake_csv results/finetune_scaled_jpegaug/finetune_per_image.csv \
-#     --dct_csv results/dct_svm_scaled/dct_per_image.csv
-
-# 5. (WS5) Fine-tune head (faithful 1024-dim image+text via reused BLIP captions) + LOGO.
-#     Run BOTH raw and controlled, with DISTINCT caches + out_dirs:
-#   --- controlled (JPEG-aug; default via config) ---
-$PY scripts/finetune_defake_head.py --config $CFG --index results/index_scaled.csv \
-    --jpeg_aug on --out_dir results/finetune_scaled_jpegaug/ \
-    --features_cache results/clip_feats_scaled_jpegaug.npz \
+# 5. (WS5) DE-FAKE multi-class attribution: fine-tune head + LOGO. THIS IS THE PRIORITY.
+#     Faithful 1024-dim image+text features via reused BLIP captions (defake_predictions_all.csv).
+#     Runs on the aspect-preserving variant (confound-controlled geometry). Give raw vs
+#     controlled runs DISTINCT caches + out_dirs.
+#   --- controlled (JPEG-aug ON) : the headline multi-class attribution result ---
+$PY scripts/finetune_defake_head.py --config $CFG --index results/index_aspect.csv \
+    --jpeg_aug on --out_dir results/finetune_aspect_jpegaug/ \
+    --features_cache results/clip_feats_aspect_jpegaug.npz \
     --captions_csv $DS/defake_predictions_all.csv
-#   --- raw baseline (no augmentation) ---
-$PY scripts/finetune_defake_head.py --config $CFG --index results/index_scaled.csv \
-    --jpeg_aug off --out_dir results/finetune_scaled_raw/ \
-    --features_cache results/clip_feats_scaled_raw.npz \
+#   --- raw baseline (JPEG-aug OFF; same geometry) for the confound comparison ---
+$PY scripts/finetune_defake_head.py --config $CFG --index results/index_aspect.csv \
+    --jpeg_aug off --out_dir results/finetune_aspect_raw/ \
+    --features_cache results/clip_feats_aspect_raw.npz \
     --captions_csv $DS/defake_predictions_all.csv
-#   --- evaluate the controlled run's attribution ---
+#   --- evaluate the controlled run's attribution (in-set vs out-of-set CMs) ---
 $PY scripts/eval_defake_attribution.py --config $CFG \
-    --predictions results/finetune_scaled_jpegaug/finetune_per_image.csv \
-    --out_dir results/attr_eval/ --pred_col pred_generator
-#   --- LOGO (controlled) ---
-$PY scripts/leave_one_generator_out.py --config $CFG --index results/index_scaled.csv \
-    --jpeg_aug on --out_dir results/logo_scaled_jpegaug/ \
-    --features_cache results/clip_feats_scaled_jpegaug.npz \
+    --predictions results/finetune_aspect_jpegaug/finetune_per_image.csv \
+    --out_dir results/attr_eval_aspect/ --pred_col pred_generator
+#   --- LOGO: the true out-of-set generalization test (train WITHOUT a generator) ---
+$PY scripts/leave_one_generator_out.py --config $CFG --index results/index_aspect.csv \
+    --jpeg_aug on --out_dir results/logo_aspect_jpegaug/ \
+    --features_cache results/clip_feats_aspect_jpegaug.npz \
     --captions_csv $DS/defake_predictions_all.csv \
     --targets "FLUX.1-schnell" "StyleGAN3-FFHQ"
 
-# 6. (WS6) Out-of-set analysis
-$PY scripts/out_of_set_analysis.py --config $CFG --out_dir results/oos/ \
-    --inputs finetuned=results/finetune_scaled_jpegaug/finetune_per_image.csv \
-             attr_eval=results/attr_eval/attribution_per_image.csv
+# 6. (WS6) Out-of-set analysis (confidence/entropy behavior on unseen generators)
+$PY scripts/out_of_set_analysis.py --config $CFG --out_dir results/oos_aspect/ \
+    --inputs finetuned=results/finetune_aspect_jpegaug/finetune_per_image.csv \
+             attr_eval=results/attr_eval_aspect/attribution_per_image.csv
 
 # 7. (WS7) Robustness on held-out test only
 $PY scripts/make_split.py --config $CFG --index results/index_scaled.csv \
@@ -144,4 +125,7 @@ $PY scripts/robustness_perturb.py --mode score --clean results/clean_pred.csv \
 $PY scripts/aggregate_results.py --results_dir results/ --out results/REPORT_SUMMARY.md
 ```
 
-Repeat steps 3-7 with `index_cropped.csv` to produce the scaling-vs-cropping comparison.
+Variant sweeps: the commands above use `index_aspect.csv` (confound-controlled). Repeat the
+same steps with `index_scaled.csv` to MEASURE the aspect/format confound (scaled vs aspect
+delta = how much the model leaned on distortion/format), and with `index_cropped.csv` for the
+scaling-vs-cropping comparison.

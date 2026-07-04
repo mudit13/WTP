@@ -50,10 +50,11 @@ scientifically reliable evaluation, not maximal accuracy.
 ## 6. Attribution: Which Generator (multi-class)
 - IMPORTANT: the provided DE-FAKE head is binary-only; there is no pretrained attribution.
   Attribution is produced by our fine-tuned head (section 7) and scored with
-  eval_defake_attribution.py (in-set vs out-of-set, confusion matrices).
-- GAN Fingerprints (`train_ganfp.py` + `run_ganfp_infer.py`; `lib/ganfp.py`): reproduced in PyTorch
-  (residual/spectrum fingerprints + a small head); attribution scored with
-  `eval_defake_attribution.py`, or documented reduced scope if the full run is infeasible.
+  eval_defake_attribution.py (in-set vs out-of-set, confusion matrices). This is the primary
+  (and current) attribution method.
+- GAN-Fingerprints (Yu2019) is PARKED as an optional second method (deprioritized per the
+  supervisor: DE-FAKE multi-class first). A PyTorch re-implementation exists on the
+  `ganfp-integrated` branch; only add it back if time allows.
 
 ## 7. Retraining / Fine-tuning (Phase E)
 - Frozen CLIP + fine-tuned head adding FLUX/StyleGAN3 (finetune_defake_head.py), faithful
@@ -78,9 +79,8 @@ scientifically reliable evaluation, not maximal accuracy.
   scaled-vs-aspect ablations that would MEASURE how much the model used it are pending.
 - London-DB resolution confound (tested, not just noted).
 - Closed-set classifiers cannot reject unknown generators (forced labels).
-- GAN-Fingerprints is Yu2019-INSPIRED (SRM front-end), re-implemented in PyTorch, not a
-  byte-faithful port; scope/training-cost bounded. (AI-assistance disclosure to be added at
-  final submission.)
+- GAN-Fingerprints attribution is out of scope for the current report (parked on the
+  `ganfp-integrated` branch); DE-FAKE multi-class attribution is the method of record.
 - Small per-generator training set for fine-tuning.
 - OpenForensics (real+fake in one image, a strong confound control) planned, pending the JSON
   upload + a face-extraction step.

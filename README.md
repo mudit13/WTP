@@ -48,7 +48,7 @@ scripts/            All Python entry points (argparse CLIs, Python 3.9):
   generate_*.py       generation (per-generator venvs)
   build_master_index.py, merge_predictions.py
   run_defake_batch.py, run_defake_dffd.py, score_defake_detection.py
-  dct_*, finetune_*, eval_*, leave_one_generator_out, out_of_set_*, robustness_*, run_ganfp
+  dct_*, finetune_*, eval_*, leave_one_generator_out, out_of_set_*, robustness_*
   prepare_variants, sample_dataset, make_split, make_datasheets, aggregate_results
 scripts/lib/        Shared package: schema, metrics, io, image ops, clip/features, head
 De-Fake-patched/    Vendored DE-FAKE code (blipmodels package + test.py/train.py)

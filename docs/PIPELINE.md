@@ -156,6 +156,43 @@ for name in jpeg30 jpeg50 jpeg70 blur1 blur2 resize0.5 resize0.75 sharpen1; do
       --perturbed $DS/robust_${name}_pred.csv --out results/robust/${name}_drop.json
 done
 
+# 7b. (RIGOR) Uncertainty, threshold hygiene, and leakage audit. These are add-ons; they do
+#      not change any run above, they quantify its reliability. All numpy/PIL/sklearn-only.
+#   --- 95% bootstrap CIs for the headline detection + attribution numbers (per-class recall too):
+$PY scripts/bootstrap_metrics.py \
+    --predictions $DS/defake_predictions_aspect.csv \
+    --out results/ci/defake_detection_aspect_ci.json
+$PY scripts/bootstrap_metrics.py --subset in_set \
+    --predictions results/attr_eval_aspect/attribution_per_image.csv \
+    --out results/ci/attr_eval_aspect_ci.json
+#   --- seed sweep: re-split + re-train ONLY the head over K seeds on the cached features
+#       (fast, no CLIP recompute) -> mean/std/CI of in-set balanced accuracy + per-class recall:
+$PY scripts/seed_sweep.py --config $CFG --index results/index_aspect.csv \
+    --features_cache results/clip_feats_aspect_jpegaug.npz \
+    --captions_csv $DS/defake_predictions_all.csv --jpeg_aug on \
+    --n_seeds 10 --out results/ci/seed_sweep_aspect.json
+#   --- paired DE-FAKE vs DCT significance (McNemar + paired AUROC bootstrap). Needs DCT
+#       per-image output, so re-run the DCT SVM once (it now writes dct_per_image.csv):
+$PY scripts/dct_extract_features.py --index results/index_aspect.csv \
+    --out results/dct_features_aspect.npz --jpeg_aug
+$PY scripts/dct_svm.py --features results/dct_features_aspect.npz \
+    --out_dir results/dct_svm_aspect/ --mode random
+$PY scripts/compare_models_significance.py \
+    --defake $DS/defake_predictions_aspect.csv \
+    --dct results/dct_svm_aspect/dct_per_image.csv \
+    --out results/ci/defake_vs_dct_aspect.json
+#   --- split-leakage audit: exact (SHA-256) + near-duplicate (dHash) checks across the
+#       train/val/test partition, plus per-generator balance counts (DIAGNOSTIC):
+$PY scripts/audit_split_leakage.py --config $CFG --index results/index_aspect.csv \
+    --out results/leakage_audit.json
+#   --- metadata-confound variant sweep (completeness): every normalized variant should be ~0.5.
+for idx in scaled cropped; do
+  $PY scripts/metadata_confound_probe.py --config $CFG \
+      --metadata results/index_${idx}.csv --out_dir results/confound_probe_${idx}/
+done
+$PY scripts/metadata_confound_probe.py --config $CFG \
+    --metadata results/robust/index_jpeg30.csv --out_dir results/confound_probe_jpeg30/
+
 # 8. (WS8) Aggregate for the report
 $PY scripts/aggregate_results.py --results_dir results/ --out results/REPORT_SUMMARY.md
 ```

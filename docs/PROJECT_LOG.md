@@ -339,6 +339,58 @@ gated via `pytest.importorskip`) the CNN forward shape / param budget / one-step
    variants -> a large drop isolates how much the model leaned on distortion/format.
 3. Report both as a measured result (turns the confound into evidence, per GOLD).
 
+## 13. Scientific rigor upgrades (colleague review)
+
+**What:** A colleague reviewed the project and flagged that the headline numbers were reported
+as bare point estimates on a small test set (~22 images/fake class) with a single seed and an
+oracle-picked threshold. Adopted the credibility-focused subset of that feedback. These are
+add-ons: **no existing result is invalidated**, we quantify its reliability. All new scripts are
+numpy/PIL/sklearn-only (no new server deps).
+
+- **Uncertainty quantification.**
+  - `scripts/bootstrap_metrics.py`: stratified bootstrap (N=2000) 95% CIs for detection and
+    attribution headline metrics, plus per-class recall CIs. Auto-detects detection vs
+    attribution input.
+  - `scripts/seed_sweep.py`: re-splits + re-trains ONLY the MLP head from the cached CLIP
+    features over K seeds (fast, no CLIP recompute) and reports mean/std/95% CI of in-set
+    balanced accuracy and per-class recall - isolates head/split variance.
+  - `scripts/compare_models_significance.py`: paired DE-FAKE-vs-DCT test on the SHARED test
+    paths (McNemar exact + paired AUROC/bal-acc bootstrap). Enabled by two small DCT changes:
+    `dct_svm.py` now writes `dct_per_image.csv` (`dct_extract_features.py` already stored paths).
+- **Detection threshold hygiene** (`scripts/score_defake_detection.py`): the old single
+  "best threshold on all rows" is now split into three clearly-labeled blocks under
+  `overall.thresholds` - `fixed_0p5` (honest default), `validation_selected` (threshold picked
+  on a seeded stratified val holdout, metrics on disjoint test rows -> the reportable operating
+  point), and `oracle_upper_bound` (best-on-all-rows, explicitly non-achievable ceiling).
+- **Split-leakage audit** (`scripts/audit_split_leakage.py`): dependency-free exact (SHA-256) +
+  near-duplicate (dHash Hamming) checks across the train/val/test partition + per-generator
+  balance counts. DIAGNOSTIC only - we are NOT switching to identity-group splitting (no
+  identity labels; per-source grouping is degenerate because source == generator == class).
+- **Metadata-confound variant sweep (measured).** Completeness table for the metadata-only
+  real/fake probe (RandomForest on width/height/aspect/log-area/format, NO pixels):
+
+  | Variant | balanced acc | AUROC | reading |
+  |---|---|---|---|
+  | raw master | ~0.89 | ~0.89 | format/resolution leak is real and strong |
+  | aspect (256 PNG) | 0.50 | 0.50 | leak removed by normalization |
+  | scaled (256 PNG) | 0.50 | 0.50 | leak removed |
+  | cropped (256 PNG) | 0.50 | 0.50 | leak removed |
+  | jpeg30 test (256 PNG) | 0.50 | 0.50 | leak removed |
+
+  Every normalized variant collapses to chance; the ~0.89 -> 0.50 gap IS the measurement that
+  the preprocessing removes the metadata confound (directly answers Dennis's question).
+- **Parked GAN-fp branch fixes** (`ganfp-integrated` only, does NOT touch main):
+  `train_ganfp_cnn.py` `--hflip` parsing bug fixed (`bool("false")` was `True`; now explicit
+  `== "true"`); `ganfp.py` feature/DCT extraction now logs per-generator skip counts for
+  unreadable images (no silent class-shrinking bias); wording audit confirmed the honest
+  "Yu2019-inspired / not byte-faithful" phrasing throughout (no "we reproduce GAN Fingerprints"
+  overclaims).
+
+**Why:** Turns "DE-FAKE in-set bal-acc 0.94" into "0.94 (95% CI ...), stable across 10 seeds",
+reports a threshold we could actually pick without peeking, proves the split is clean, and shows
+the confound is gone across every normalized variant - the difference between a plausible result
+and a defensible one (GOLD).
+
 ---
 
 ## Open items still needing the supervisor

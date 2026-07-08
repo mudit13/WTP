@@ -52,6 +52,7 @@ class _MLPHead:
             self.model.train()
             perm = torch.randperm(n, device=self.device)
             total = 0.0
+            nb = 0
             for start in range(0, n, batch_size):
                 idx = perm[start:start + batch_size]
                 optim.zero_grad()
@@ -60,6 +61,7 @@ class _MLPHead:
                 loss.backward()
                 optim.step()
                 total += float(loss.item())
+                nb += 1
             if X_val is not None and len(X_val) > 0:
                 # Select on BALANCED accuracy, not plain accuracy: the loss is class-weighted
                 # for imbalance, so checkpoint selection must be too, or the majority (real)
@@ -72,7 +74,7 @@ class _MLPHead:
                 if logger and (epoch % 10 == 0 or epoch == epochs - 1):
                     val_acc = float((val_pred == y_val).mean())
                     logger.info("epoch %d loss=%.4f val_balAcc=%.3f val_acc=%.3f",
-                                epoch, total, val_bal, val_acc)
+                                epoch, total / max(1, nb), val_bal, val_acc)
         if best_state is not None:
             self.model.load_state_dict(best_state)
         return self
@@ -118,8 +120,9 @@ def encode_labels(generators: np.ndarray, classes: List[str]) -> np.ndarray:
 def compute_class_weights(y: np.ndarray, num_classes: int) -> np.ndarray:
     """Inverse-frequency class weights (handles small/imbalanced generator sets)."""
     counts = np.bincount(y, minlength=num_classes).astype(np.float64)
-    counts[counts == 0] = 1.0
-    weights = counts.sum() / (num_classes * counts)
+    total = counts.sum()                 # true sample count, before empty-class substitution
+    counts[counts == 0] = 1.0            # avoid divide-by-zero for classes with no samples
+    weights = total / (num_classes * counts)
     return weights.astype(np.float32)
 
 

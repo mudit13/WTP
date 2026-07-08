@@ -381,8 +381,13 @@ def main(args):
         # Binary detection accuracy for the external detector on the test rows.
         import pandas as pd  # noqa: E402
         y_true_bin = np.array([1 if classes[i] not in real_set else 0 for i in y[te]])
-        ext_bin = np.array([1 if str(v) not in real_set and v is not None else 0
-                            for v in defake_preds])
+        if defake_col == "defake_predict":
+            # Fallback column is already binary (1=fake, 0=real); use it directly. Mapping it
+            # through the name-based real_set test would turn every "0"/"1" string into fake.
+            ext_bin = np.array([int(v) if v is not None else 0 for v in defake_preds])
+        else:
+            ext_bin = np.array([1 if (v is not None and str(v) not in real_set) else 0
+                                for v in defake_preds])
         det_ext = metrics.detection_metrics(y_true_bin, ext_bin)
         comparison.append({"method": "defake", "top1_accuracy": det_ext["accuracy"],
                            "macro_f1": det_ext["macro_f1"],

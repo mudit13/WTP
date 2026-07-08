@@ -33,9 +33,23 @@ DS=/pitsec_sose26_topic8/dataset
 $PY scripts/build_master_index.py --config $CFG --out $DS/master_metadata.csv \
     --reconcile $DS/defake_predictions_all.csv
 
-# 1b. (WS1) Diversify reals: DFFD FFHQ is already a config source. Add OpenForensics reals
-#     (pending the supervisor), then rebuild. Generate datasheets:
+# 1b. (WS1) Diversify reals. OpenForensics reals are a TRAINED real class (Dennis's #1 steer);
+#     OpenForensics-fake is out-of-set. Sort the teammate's flat crops into real/fake, then rebuild
+#     the master index (both OF entries are capped at sample_size 300 in config.yaml):
+$PY scripts/ingest_openforensics.py --crops_csv $DS/openforensics/crops.csv \
+    --crops_dir $DS/openforensics/crops --out_root $DS/openforensics --mode symlink
+$PY scripts/build_master_index.py --config $CFG --out $DS/master_metadata.csv \
+    --reconcile $DS/defake_predictions_all.csv
 $PY scripts/make_datasheets.py --metadata $DS/master_metadata.csv --out results/datasheets.md
+
+# 1c. (WS1) CONFOUND GATE for OpenForensics (colleague's crop-size concern): probe real/fake
+#     separability from crop SIZE alone, restricted to OF rows. ~0.5 = OF is clean; if HIGH, the
+#     bounding-box sizes leak the label -> use the aspect variant for OF before trusting results.
+$PY scripts/metadata_confound_probe.py --config $CFG --metadata $DS/master_metadata.csv \
+    --source_filter openforensics --out_dir results/confound_probe_of/
+# After this gate passes, RE-RUN detection (step 3a) and the multi-class attribution fine-tune
+# (step 5, now 7-class: +OpenForensics real) so the OF real class is reflected in the headline
+# numbers, then the rigor add-ons in step 7b.
 
 # 2. (WS2) Preprocessing variants -> writes index_{scaled,cropped,aspect}.csv.
 #     "aspect" = aspect-preserving (no stretch) -> use for the confound-controlled runs.
@@ -64,8 +78,9 @@ $PY scripts/metadata_confound_probe.py --config $CFG \
 #     and DFFD). Then score $WTP_PRED_CSV directly. Do NOT also run dffd+merge or the DFFD rows
 #     get scored twice.
 $PY scripts/run_defake_batch.py            # writes $WTP_PRED_CSV (ALL rows)
-#     LEGACY split (only if master was built WITHOUT DFFD, then DFFD added separately):
-#$PY scripts/run_defake_dffd.py            # writes $WTP_PRED_DFFD_CSV (dffd_* rows only)
+#     LEGACY split (only if master was built WITHOUT DFFD, then DFFD added separately). The old
+#     run_defake_dffd.py is now just run_defake_batch.py with a --dataset_filter:
+#$PY scripts/run_defake_batch.py --dataset_filter dffd_ --out $DS/defake_predictions_dffd.csv
 #$PY scripts/merge_predictions.py          # -> $WTP_PRED_ALL_CSV
 #     To run on a preprocessing variant instead, point at the variant index that
 #     prepare_variants.py actually writes (results/index_scaled.csv / results/index_cropped.csv):
@@ -143,13 +158,18 @@ $PY scripts/out_of_set_analysis.py --config $CFG --out_dir results/oos_aspect/ \
     --inputs finetuned=results/finetune_aspect_jpegaug/finetune_per_image.csv \
              attr_eval=results/attr_eval_aspect/attribution_per_image.csv
 
-# 7. (WS7) Robustness on held-out test only.
+# 7. (WS7) Robustness on held-out test only. Tested for ALL THREE methods (DE-FAKE detection,
+#     DCT-SVM detection, DE-FAKE attribution) on the SAME perturbed set so the method comparison
+#     is apples-to-apples. NOTE: adding OpenForensics changed the test split, so REGENERATE the
+#     perturbations (delete results/robust + $DS/robust first) rather than reusing an old run.
 #     generate writes ONLY the 8 perturbation indices (index_jpeg30.csv ... index_sharpen1.csv);
 #     there is NO index_clean.csv - the CLEAN baseline is results/test_index.csv itself.
 $PY scripts/make_split.py --config $CFG --index results/index_aspect.csv \
     --train_out results/train_index.csv --test_out results/test_index.csv
 $PY scripts/robustness_perturb.py --mode generate --config $CFG \
     --index results/test_index.csv --out_root $DS/robust --index_dir results/robust/
+
+#   --- (a) DE-FAKE detection robustness ---
 #   CLEAN baseline = DE-FAKE on the unperturbed test set:
 WTP_MASTER_CSV=results/test_index.csv \
 WTP_PRED_CSV=$DS/robust_clean_pred.csv $PY scripts/run_defake_batch.py
@@ -157,12 +177,44 @@ WTP_PRED_CSV=$DS/robust_clean_pred.csv $PY scripts/run_defake_batch.py
 for name in jpeg30 jpeg50 jpeg70 blur1 blur2 resize0.5 resize0.75 sharpen1; do
   WTP_MASTER_CSV=results/robust/index_${name}.csv \
   WTP_PRED_CSV=$DS/robust_${name}_pred.csv $PY scripts/run_defake_batch.py
-done
-#   score each perturbation vs the clean baseline:
-for name in jpeg30 jpeg50 jpeg70 blur1 blur2 resize0.5 resize0.75 sharpen1; do
   $PY scripts/robustness_perturb.py --mode score --clean $DS/robust_clean_pred.csv \
       --perturbed $DS/robust_${name}_pred.csv --out results/robust/${name}_drop.json
 done
+
+#   --- (b) DCT-SVM detection robustness (reuse the trained SVM from step 3b/7b) ---
+#   Predict the SAME perturbed images with the fitted model (dct_svm.py --mode predict), then
+#   score the flip/accuracy drop against the clean DCT predictions.
+$PY scripts/dct_extract_features.py --index results/test_index.csv \
+    --out results/robust/dct_clean.npz --jpeg_aug
+$PY scripts/dct_svm.py --mode predict --model results/dct_svm_aspect/dct_svm.joblib \
+    --features results/robust/dct_clean.npz --out_dir results/robust/dct_clean/
+for name in jpeg30 jpeg50 jpeg70 blur1 blur2 resize0.5 resize0.75 sharpen1; do
+  $PY scripts/dct_extract_features.py --index results/robust/index_${name}.csv \
+      --out results/robust/dct_${name}.npz --jpeg_aug
+  $PY scripts/dct_svm.py --mode predict --model results/dct_svm_aspect/dct_svm.joblib \
+      --features results/robust/dct_${name}.npz --out_dir results/robust/dct_${name}/
+  $PY scripts/robustness_perturb.py --mode score \
+      --clean results/robust/dct_clean/dct_per_image.csv \
+      --perturbed results/robust/dct_${name}/dct_per_image.csv \
+      --pred_col pred --conf_col score --out results/robust/dct_${name}_drop.json
+done
+
+#   --- (c) DE-FAKE ATTRIBUTION robustness (does perturbation change WHICH generator?) ---
+#   Predict with the fine-tuned head (predict_defake_head.py), score generator-label flips.
+$PY scripts/predict_defake_head.py --config $CFG \
+    --head results/finetune_aspect_jpegaug/defake_head.pt --index results/test_index.csv \
+    --captions_csv $DS/defake_predictions_all.csv --out results/robust/attr_clean.csv
+for name in jpeg30 jpeg50 jpeg70 blur1 blur2 resize0.5 resize0.75 sharpen1; do
+  $PY scripts/predict_defake_head.py --config $CFG \
+      --head results/finetune_aspect_jpegaug/defake_head.pt \
+      --index results/robust/index_${name}.csv \
+      --captions_csv $DS/defake_predictions_all.csv --out results/robust/attr_${name}.csv
+  $PY scripts/robustness_perturb.py --mode score --clean results/robust/attr_clean.csv \
+      --perturbed results/robust/attr_${name}.csv --pred_col pred_generator \
+      --conf_col confidence --out results/robust/attr_${name}_drop.json
+done
+
+#   (Or run all of stage 7 in one go: $PY scripts/run_experiment.py --stages robustness)
 
 # 7b. (RIGOR) Uncertainty, threshold hygiene, and leakage audit. These are add-ons; they do
 #      not change any run above, they quantify its reliability. All numpy/PIL/sklearn-only.
@@ -203,9 +255,62 @@ $PY scripts/metadata_confound_probe.py --config $CFG \
 
 # 8. (WS8) Aggregate for the report
 $PY scripts/aggregate_results.py --results_dir results/ --out results/REPORT_SUMMARY.md
+
+# 9. (APPENDIX, optional) Raw-GEOMETRY out-of-set / LOGO baseline.
+#    The headline out-of-set/LOGO runs above are confound-controlled (aspect geometry + JPEG-aug).
+#    We already have a JPEG-aug-OFF baseline (the GAN-collapse reproduces there). This isolates the
+#    remaining GEOMETRY axis for out-of-set by re-running on the SCALED (squash) index with
+#    JPEG-aug OFF. ZERO new code - just different --index/--jpeg_aug + distinct caches/out_dirs.
+#    Expectation: the qualitative unseen-GAN -> real collapse persists (geometry is not the driver).
+$PY scripts/finetune_defake_head.py --config $CFG --index results/index_scaled.csv \
+    --jpeg_aug off --out_dir results/finetune_scaled_raw/ \
+    --features_cache results/clip_feats_scaled_raw.npz \
+    --captions_csv $DS/defake_predictions_all.csv
+$PY scripts/leave_one_generator_out.py --config $CFG --index results/index_scaled.csv \
+    --jpeg_aug off --out_dir results/logo_scaled_raw/ \
+    --features_cache results/clip_feats_scaled_raw.npz \
+    --captions_csv $DS/defake_predictions_all.csv \
+    --targets "FLUX.1-schnell" "StyleGAN3-FFHQ"
+$PY scripts/out_of_set_analysis.py --config $CFG --out_dir results/oos_scaled_raw/ \
+    --inputs finetuned=results/finetune_scaled_raw/finetune_per_image.csv
+#    (Shortcut: $PY scripts/run_experiment.py --variant scaled --jpeg_aug off \
+#        --stages attribution,oos)
 ```
 
 Variant sweeps: the commands above use `index_aspect.csv` (confound-controlled). Repeat the
 same steps with `index_scaled.csv` to MEASURE the aspect/format confound (scaled vs aspect
 delta = how much the model leaned on distortion/format), and with `index_cropped.csv` for the
 scaling-vs-cropping comparison.
+
+## One-command runner
+
+`scripts/run_experiment.py` wraps the stages above with consistent variant/jpeg-aug/path naming
+(it just shells out to the same scripts, so behaviour matches this runbook). Preview first:
+
+```bash
+$PY scripts/run_experiment.py --dry_run                 # headline aspect + jpeg-aug plan
+$PY scripts/run_experiment.py                           # run the headline path
+$PY scripts/run_experiment.py --stages ganfp,robustness # add the heavy stages
+$PY scripts/run_experiment.py --variant scaled --jpeg_aug off --stages attribution,oos  # raw baseline
+```
+
+Stages: `index, variants, confound, detect, dct, attribution, oos, ganfp, robustness, aggregate`.
+Default = the confound-controlled headline (everything except `ganfp`/`robustness`).
+
+## Cleanup / regenerate after a dataset change (e.g. adding OpenForensics)
+
+Adding or recapping a dataset changes the master index, so all DERIVED artifacts must be
+regenerated. The CLIP feature cache is safe on its own (its signature hashes the index content,
+so a stale cache is never silently reused - `scripts/lib/features_cache.py`), but delete the
+derived files anyway to reclaim disk and avoid confusion. KEEP raw datasets and model checkpoints.
+
+```bash
+# derived indices, feature caches, predictions, and result dirs (regenerated by a re-run):
+rm -f  results/index_*.csv results/clip_feats_*.npz results/ganfp_feats_*.npz \
+       results/dct_features_*.npz $DS/defake_predictions_*.csv
+rm -rf results/finetune_* results/logo_* results/attr_eval_* results/oos_* \
+       results/dct_svm_* results/ganfp_* results/defake_detection_* results/ci
+# robustness perturbations are keyed to the OLD test split -> always regenerate:
+rm -rf results/robust $DS/robust $DS/robust_*_pred.csv
+# then rebuild from step 1 (or: $PY scripts/run_experiment.py).
+```

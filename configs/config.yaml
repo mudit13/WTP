@@ -86,7 +86,12 @@ datasets:
     category: real
     dir: ${WTP_ROOT}/dataset/openforensics/real
     ext: [".png", ".jpg"]
-    note: "In-the-wild faces (real subset). Optional; pending supervisor preference; skipped if absent."
+    sample_size: 300
+    note: "In-the-wild faces (real subset). A TRAINED real attribution class that diversifies the
+      narrow real class (GOLD concern #1; Dennis strongly advised adding OpenForensics reals). Capped
+      at 300 to size-match the other real classes (FFHQ 300 / CelebA 320) so the thousands of OF crops
+      do not swamp them. Also used for DETECTION; same-photo pairs with openforensics_fake give a
+      format-matched (JPEG q95) confound benchmark. Skipped if absent."
 
   - name: openforensics_fake
     label: fake
@@ -94,10 +99,12 @@ datasets:
     category: out_of_set
     dir: ${WTP_ROOT}/dataset/openforensics/fake
     ext: [".png", ".jpg"]
-    note: "OpenForensics manipulated faces (fake subset). Distinct generator name from the real
-      subset so the attribution taxonomy stays real/fake-exclusive. Cropped from the SAME source
-      photos as the reals (shared JPEG q95 pipeline) -> format confound-safe by construction.
-      Skipped if absent."
+    sample_size: 300
+    note: "OpenForensics manipulated faces (fake subset). Kept OUT-OF-SET (a genuinely unseen
+      manipulation type = clean generalization probe); distinct generator name from the real subset
+      so the attribution taxonomy stays real/fake-exclusive. Capped at 300 to balance the OF real
+      class. Cropped from the SAME source photos as the reals (shared JPEG q95 pipeline) -> format
+      confound-safe by construction. Skipped if absent."
 
   # --- DFFD (from /share/DeepFake/DFFD_Images/<model>/test) -------------------
   - name: dffd_ffhq
@@ -158,6 +165,15 @@ datasets:
 # leave_one_generator_out.py gives the strict generalization number by RETRAINING without a
 # target, so it may hold out in-set generators too (pass them via --targets).
 attribution:
+  # OpenForensics is split by subset, on purpose:
+  #   - OF REALS  -> a TRAINED real class (listed in real_generators below). This is the direct
+  #     answer to GOLD concern #1 / Dennis's strongest steer: diversify the narrow real class with
+  #     in-the-wild faces. Capped (sample_size 300) so it size-matches the other real classes.
+  #   - OF FAKES  -> kept OUT-OF-SET ("OpenForensics-fake"): a genuinely unseen manipulation type,
+  #     so it stays a clean generalization probe (never trained, only force-scored).
+  # The same-photo OF real/fake pairs (shared JPEG q95 pipeline) still serve as the format-matched
+  # DETECTION confound benchmark. Trade-off: OF reals are no longer a held-out real probe (the
+  # diversify intent wins for the real side); OF-fake remains the held-out fake probe.
   real_generators: ["London-DB", "FFHQ", "CelebA", "OpenForensics"]
   in_set_generators: ["SD1.5"]
   finetune_new_classes: ["FLUX.1-schnell", "StyleGAN3-FFHQ"]

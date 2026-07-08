@@ -86,6 +86,18 @@ def main(args):
     df = pd.read_csv(args.metadata)
     if schema.LABEL not in df.columns:
         raise SystemExit("Metadata CSV needs a '%s' column." % schema.LABEL)
+    if args.source_filter:
+        # Restrict to a subset of sources (e.g. --source_filter openforensics) so the confound can
+        # be measured within one dataset alone - the OpenForensics crop-size check Dennis's colleague
+        # asked for. Matches on source_dataset, falling back to generator if that column is absent.
+        col = schema.DATASET if schema.DATASET in df.columns else schema.GENERATOR
+        needle = args.source_filter.lower()
+        before = len(df)
+        df = df[df[col].astype(str).str.lower().str.contains(needle, na=False)].copy()
+        logger.info("source_filter '%s' on %s: kept %d/%d rows.",
+                    args.source_filter, col, len(df), before)
+        if df.empty:
+            raise SystemExit("No rows match --source_filter '%s'." % args.source_filter)
     X, feat_names, y, df = _build_features(df, logger)
     n_fake = int(y.sum())
     n_real = int((y == 0).sum())
@@ -122,6 +134,7 @@ def main(args):
             }
 
     result = {
+        "source_filter": args.source_filter,
         "n": int(len(y)), "n_real": n_real, "n_fake": n_fake,
         "test_n": int(len(yte)),
         "balanced_accuracy": bal_acc,
@@ -147,5 +160,8 @@ if __name__ == "__main__":
     parser.add_argument("--config", required=True)
     parser.add_argument("--metadata", required=True,
                         help="master_metadata.csv (raw) or a variant index CSV (normalized).")
+    parser.add_argument("--source_filter", default=None,
+                        help="Optional substring; restrict to matching source_dataset (e.g. "
+                             "'openforensics') to probe the confound within one dataset alone.")
     parser.add_argument("--out_dir", required=True)
     main(parser.parse_args())

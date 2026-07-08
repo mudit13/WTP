@@ -102,6 +102,9 @@ the indices.)
   per-image labels volatile (JPEG q30 flips 33%). See PROJECT_LOG 9d.
 - GAN-fp (Yu2019-inspired) is on `main`: feature + CNN paths + benchmark (WS4).
 - OpenForensics: extraction (real+fake face crops) done by a teammate; wired via the
-  `openforensics_fake` config entry + `ingest_openforensics.py` (sort crops into real/fake) ->
-  `build_master_index.py`. Run the metadata-only size-confound check on the OF rows once merged.
+  `openforensics_real` + `openforensics_fake` config entries (both capped 300) +
+  `ingest_openforensics.py` (sort crops into real/fake) -> `build_master_index.py`. OF reals are a
+  TRAINED real class (diversify per Dennis); OF-fake is out-of-set (unseen manipulation). Gate:
+  run `metadata_confound_probe.py --source_filter openforensics` (crop-size check) before trusting
+  OF numbers, then re-run the attribution fine-tune + detection with the new real class.
 - Pending supervisor: report/exam date.

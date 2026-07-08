@@ -9,7 +9,7 @@ re-plumbed. ASCII-only; Python 3.9.
 master_metadata.csv columns:
     filename, full_path, label, generator, category, source_dataset, width, height
 
-defake prediction columns (added by run_defake_batch.py / run_defake_dffd.py):
+defake prediction columns (added by run_defake_batch.py):
     defake_predict (0=real, 1=fake), prob_real, prob_fake, blip_caption
 """
 

@@ -27,7 +27,8 @@ for the venvs.
 
 Generation + DE-FAKE inference (already run on the server) now live in `scripts/`:
 `generate_sd15_txt2img.py`, `generate_flux1_txt2img.py`, `generate_stylegan3.py`,
-`build_master_index.py`, `run_defake_batch.py` / `run_defake_dffd.py`, `merge_predictions.py`.
+`build_master_index.py`, `run_defake_batch.py` (`--dataset_filter dffd_` for the DFFD-only
+subset), `merge_predictions.py`.
 (The previously separate `update_master_index_dffd.py` is folded into the config-driven
 `build_master_index.py`.) These produce:
 
@@ -47,7 +48,7 @@ configs/            config.yaml + paths.example.env (copy to paths.env; never co
 scripts/            All Python entry points (argparse CLIs, Python 3.9):
   generate_*.py       generation (per-generator venvs)
   build_master_index.py, merge_predictions.py
-  run_defake_batch.py, run_defake_dffd.py, score_defake_detection.py
+  run_defake_batch.py (--dataset_filter for subsets), score_defake_detection.py
   dct_*, finetune_*, eval_*, leave_one_generator_out, out_of_set_*, robustness_*
   prepare_variants, sample_dataset, make_split, make_datasheets, aggregate_results
 scripts/lib/        Shared package: schema, metrics, io, image ops, clip/features, head
@@ -81,8 +82,8 @@ Never use bare `python`. See `docs/PIPELINE.md` for the full run order and
 A few load paths deserialize Python objects and will execute arbitrary code if the file is
 malicious. They are safe **only because we load our own trusted artifacts**:
 
-- `run_defake_batch.py` / `run_defake_dffd.py` use `torch.load(..., weights_only=False)` on
-  the supervisor-provided `clip_linear.pt` / `finetune_clip.pt` in `$WTP_ROOT/models`.
+- `run_defake_batch.py` uses `torch.load(..., weights_only=False)` on the supervisor-provided
+  `clip_linear.pt` / `finetune_clip.pt` in `$WTP_ROOT/models`.
 - `generate_stylegan3.py` uses `pickle.load` on the official StyleGAN3 `.pkl`.
 - `features_cache.py` / `dct_svm.py` use `np.load(allow_pickle=True)` on caches this pipeline
   itself wrote.

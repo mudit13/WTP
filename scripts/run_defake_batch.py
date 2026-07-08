@@ -14,6 +14,9 @@ Run inside the container (interpreter that has clip+torch+blipmodels = venv_sd15
     source /pitsec_sose26_topic8/venv_sd15/bin/activate
     python scripts/run_defake_batch.py            # full run
     python scripts/run_defake_batch.py --test     # first 10 images only
+    # only the DFFD rows, to a separate CSV (replaces the old run_defake_dffd.py):
+    python scripts/run_defake_batch.py --dataset_filter dffd_ \
+        --out /pitsec_sose26_topic8/dataset/defake_predictions_dffd.csv
 """
 
 import argparse
@@ -129,6 +132,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", action="store_true",
                         help="Run on first 10 images only (sanity check)")
+    parser.add_argument("--dataset_filter", default=None,
+                        help="Only score rows whose source_dataset starts with this prefix "
+                             "(e.g. 'dffd_'). Replaces the old run_defake_dffd.py.")
+    parser.add_argument("--out", default=None,
+                        help="Output predictions CSV (default: $WTP_PRED_CSV). Use a separate "
+                             "path when running a filtered subset so it can be merged later.")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -139,11 +148,18 @@ def main():
     with open(MASTER_CSV, newline="") as f:
         rows = list(csv.DictReader(f))
 
+    if args.dataset_filter:
+        rows = [r for r in rows if r["source_dataset"].startswith(args.dataset_filter)]
+        print(f"DATASET FILTER '{args.dataset_filter}': {len(rows)} matching rows")
+
     if args.test:
         rows = rows[:10]
         print(f"TEST MODE: running on first {len(rows)} images only")
     else:
         print(f"FULL RUN: {len(rows)} images")
+
+    if not rows:
+        raise SystemExit("No rows to score (check --dataset_filter / master CSV).")
 
     fieldnames = list(rows[0].keys()) + [
         "defake_predict", "prob_real", "prob_fake", "blip_caption"
@@ -173,7 +189,8 @@ def main():
             elapsed = time.time() - t0
             print(f"  {i+1}/{len(rows)} done | {elapsed:.1f}s elapsed | {errors} errors")
 
-    out_path = OUTPUT_CSV.replace(".csv", "_test.csv") if args.test else OUTPUT_CSV
+    base_out = args.out or OUTPUT_CSV
+    out_path = base_out.replace(".csv", "_test.csv") if args.test else base_out
     with open(out_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

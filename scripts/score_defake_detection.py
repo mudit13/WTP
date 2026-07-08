@@ -2,7 +2,7 @@
 """
 Score DE-FAKE binary detection (real vs fake) from a predictions CSV.
 
-The actual inference is produced by the team's run_defake_batch.py / run_defake_dffd.py,
+The actual inference is produced by the team's run_defake_batch.py (optionally --dataset_filter),
 which write the schema:
     filename, full_path, label, generator, category, source_dataset, width, height,
     defake_predict (0=real,1=fake,-1=error), prob_real, prob_fake, blip_caption

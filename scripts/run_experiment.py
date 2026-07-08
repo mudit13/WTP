@@ -57,8 +57,15 @@ class Ctx:
         self.augtag = "jpegaug" if self.jpeg_aug == "on" else "raw"
         self.index = f"{self.results}/index_{self.variant}.csv"
         self.master = f"{self.ds}/master_metadata.csv"
-        self.captions = f"{self.ds}/defake_predictions_all.csv"
         self.pred = f"{self.ds}/defake_predictions_{self.variant}.csv"
+        # Captions source for the faithful DE-FAKE 1024-dim image+text features. Prefer an
+        # explicit override, then a project-wide merged file if it exists, else the same-variant
+        # detect output (created by the `detect` stage; its full_paths match this index, so
+        # captions join cleanly). This avoids hard-coding a `defake_predictions_all.csv` that
+        # may not exist on a fresh setup (which crashed the fine-tune while reading it).
+        all_captions = f"{self.ds}/defake_predictions_all.csv"
+        self.captions = args.captions_csv or (
+            all_captions if os.path.exists(all_captions) else self.pred)
         self.feats = f"{self.results}/clip_feats_{self.variant}_{self.augtag}.npz"
         self.finetune_out = f"{self.results}/finetune_{self.variant}_{self.augtag}/"
         self.attr_eval_out = f"{self.results}/attr_eval_{self.variant}/"
@@ -244,6 +251,32 @@ BUILDERS = {
 }
 
 
+def _check_prereqs(c, stages):
+    """Fail fast (before running anything) when a downstream stage needs an artifact that a
+    skipped upstream stage would have produced. Prevents the deep FileNotFoundError you hit
+    when running ganfp/robustness without first running attribution/dct/detect."""
+    missing = []
+
+    def need(stage_here, producer, artifact, why):
+        if stage_here in stages and producer not in stages and not os.path.exists(artifact):
+            missing.append("  - %s needs '%s' (run the '%s' stage first)" % (why, artifact, producer))
+
+    head = f"{c.finetune_out}defake_head.pt"
+    dct_model = f"{c.dct_svm_out}dct_svm.joblib"
+    finetune_csv = f"{c.finetune_out}finetune_per_image.csv"
+
+    need("robustness", "attribution", head, "attribution-robustness")
+    need("robustness", "dct", dct_model, "DCT-SVM-robustness")
+    need("robustness", "detect", c.pred, "captions/detect-robustness")
+    need("ganfp", "attribution", finetune_csv, "GAN-fp vs DE-FAKE comparison")
+
+    if missing:
+        raise SystemExit(
+            "Missing prerequisites for the requested stages:\n" + "\n".join(missing) +
+            "\n\nEither add the producer stage(s) to --stages, or run the headline stages first, "
+            "e.g.:\n  --stages detect,dct,attribution,oos,aggregate")
+
+
 def main(args):
     logger = io_utils.setup_logging("run_experiment")
     stages = [s.strip() for s in args.stages.split(",") if s.strip()]
@@ -252,6 +285,8 @@ def main(args):
         raise SystemExit("Unknown stage(s): %s. Valid: %s" % (unknown, ", ".join(ALL_STAGES)))
 
     c = Ctx(args)
+    if not args.dry_run:
+        _check_prereqs(c, stages)
     logger.info("Variant=%s jpeg_aug=%s device=%s", c.variant, c.jpeg_aug, c.device)
     logger.info("Interpreter=%s  dataset=%s  results=%s", c.py, c.ds, c.results)
     logger.info("Stages: %s%s", ", ".join(stages), "  [DRY RUN]" if args.dry_run else "")
@@ -309,6 +344,10 @@ if __name__ == "__main__":
                    help="Dataset root (default: $WTP_ROOT/dataset).")
     p.add_argument("--python", default=None,
                    help="Interpreter for sub-scripts (default: $WTP_PY_DEFAKE or this python).")
+    p.add_argument("--captions_csv", default=None,
+                   help="Captions CSV (full_path, blip_caption) for 1024-dim DE-FAKE features. "
+                        "Default: defake_predictions_all.csv if present, else the same-variant "
+                        "detect output (defake_predictions_<variant>.csv).")
     p.add_argument("--dry_run", action="store_true", help="Print the command plan, run nothing.")
     p.add_argument("--keep_going", action="store_true",
                    help="Continue after a failing step instead of aborting.")

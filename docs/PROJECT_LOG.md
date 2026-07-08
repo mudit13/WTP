@@ -347,6 +347,14 @@ gated via `pytest.importorskip`) the CNN forward shape / param budget / one-step
     metadata-only probe restricted to OF rows (`metadata_confound_probe.py --source_filter
     openforensics`). ~0.5 balanced acc/AUROC = OF is clean; if high (crop bounding-boxes leak the
     label by size), route OF through the `aspect` normalization and re-probe to ~0.5 first.
+  - **Confound gate RESULT (measured, 600 OF crops = 300 real + 300 fake):** RAW OF is real/fake
+    separable from crop GEOMETRY alone at **balanced acc 0.608 / AUROC 0.634** (importances: aspect
+    0.36, log_area 0.22, width 0.21, height 0.21; is_png/is_jpeg = 0.0 -> format is NOT the leak,
+    as designed since OF is uniformly JPEG q95). So raw OF has a moderate crop-SIZE confound (real
+    vs fake faces differ in bbox size/aspect). After the `aspect` normalization (every crop ->
+    common square) it collapses to **exactly chance (0.500 / 0.500, all importances 0)**. Therefore
+    OF is ONLY used on the aspect variant; raw-geometry OF numbers are not reported. This mirrors
+    the format-confound story (0.89 -> 0.50) on the size axis.
 
 **Planned confound-verification experiment (to answer Dennis's question directly):**
 1. Train a trivial classifier on *metadata only* (width, height, on-disk format) -> if it

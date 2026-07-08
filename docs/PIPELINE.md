@@ -88,13 +88,21 @@ $PY scripts/dct_svm.py --features results/dct_features_scaled.npz \
     --out_dir results/dct_svm_oos/ --mode out_of_set \
     --holdout_generators "FLUX.1-schnell" "StyleGAN3-FFHQ"
 
-# 4. (WS4) GAN Fingerprints attribution -- PARKED, not on main.
-#    A team decision (PR #5) removed the GAN-fp code from main; per the supervisor, DE-FAKE
-#    multi-class attribution (WS5) takes PRIORITY over GAN-Fingerprints. The full GAN-fp
-#    implementation (feature + CNN paths, faithful Fridrich-Kodovsky SRM front-end, benchmark)
-#    is preserved on branch `ganfp-integrated` (origin/ganfp-integrated). To resume it later:
-#      git checkout ganfp-integrated
-#    Do NOT run ganfp scripts from main -- they are intentionally absent here.
+# 4. (WS4) GAN Fingerprints (Yu2019-inspired) attribution -- on main.
+#    Second attribution method beside DE-FAKE, targeting the GAN-specific traces CLIP misses.
+#    Two paths share ONE seeded stratified split (scripts/benchmark_attribution.py):
+#      Path A = residual/spectrum fingerprint features + MLP head (train_ganfp.py);
+#      Path B = end-to-end CNN with a fixed Fridrich-Kodovsky SRM high-pass front-end
+#               (train_ganfp_cnn.py). Yu2019-INSPIRED, not a byte-faithful port.
+#    Run on the aspect variant for the confound-controlled result:
+$PY scripts/train_ganfp.py --config $CFG --index results/index_aspect.csv \
+    --jpeg_aug on --features_cache results/ganfp_feats_aspect.npz \
+    --out_dir results/ganfp_feature_aspect/
+$PY scripts/train_ganfp_cnn.py --config $CFG --index results/index_aspect.csv \
+    --jpeg_aug on --device cuda --out_dir results/ganfp_cnn_aspect/
+$PY scripts/benchmark_attribution.py --config $CFG --index results/index_aspect.csv \
+    --out_dir results/ganfp_benchmark_aspect/ \
+    --defake_csv results/finetune_aspect_jpegaug/finetune_per_image.csv
 
 # 5. (WS5) DE-FAKE multi-class attribution: fine-tune head + LOGO. THIS IS THE PRIORITY.
 #     Faithful 1024-dim image+text features via reused BLIP captions (defake_predictions_all.csv).

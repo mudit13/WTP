@@ -240,10 +240,12 @@ the clean baseline is `results/test_index.csv` itself. PIPELINE.md updated accor
 
 ## 10. GAN Fingerprints (Yu2019-inspired) reproduced in PyTorch
 
-> **STATUS: PARKED (removed from `main`).** Sections 10-11 are the historical record of the
-> GAN-fp exploration. Per the supervisor (DE-FAKE multi-class attribution takes priority), the
-> GAN-fp code was removed from `main` and preserved on the `ganfp-integrated` branch. Re-add
-> only if time allows after the DE-FAKE attribution deliverable.
+> **STATUS: ON MAIN.** GAN-fp was temporarily parked on the `ganfp-integrated` branch while
+> DE-FAKE multi-class attribution took priority; it has now been consolidated back onto `main`
+> in complete form (feature + CNN paths, faithful Fridrich-Kodovsky SRM front-end, benchmark)
+> alongside the `--hflip` and per-generator-skip-count fixes. It is a SECOND attribution method
+> beside DE-FAKE, not a replacement. See scripts/train_ganfp*.py + benchmark_attribution.py and
+> the WS4 block in docs/PIPELINE.md.
 
 **What:** Added a GAN-fp attribution path as a second method beside the CLIP/DE-FAKE head.
 `scripts/lib/ganfp.py` extracts residual + FFT-spectrum fingerprint features (luminance,
@@ -379,12 +381,18 @@ numpy/PIL/sklearn-only (no new server deps).
 
   Every normalized variant collapses to chance; the ~0.89 -> 0.50 gap IS the measurement that
   the preprocessing removes the metadata confound (directly answers Dennis's question).
-- **Parked GAN-fp branch fixes** (`ganfp-integrated` only, does NOT touch main):
+- **GAN-fp fixes (now on main via the consolidation below):**
   `train_ganfp_cnn.py` `--hflip` parsing bug fixed (`bool("false")` was `True`; now explicit
   `== "true"`); `ganfp.py` feature/DCT extraction now logs per-generator skip counts for
   unreadable images (no silent class-shrinking bias); wording audit confirmed the honest
   "Yu2019-inspired / not byte-faithful" phrasing throughout (no "we reproduce GAN Fingerprints"
   overclaims).
+- **Branch consolidation:** everything is now on `main` - the rigor upgrades, the GAN-fp
+  implementation (un-parked from `ganfp-integrated` in complete form), and OpenForensics wiring
+  (`openforensics_fake` config entry with a DISTINCT `OpenForensics-fake` generator so the
+  real/fake taxonomy stays exclusive; `scripts/ingest_openforensics.py` sorts the flat crops
+  into real/ and fake/ for the config-driven `build_master_index.py`). The `ganfp-integrated`
+  branch is redundant after this and removed.
 
 **Why:** Turns "DE-FAKE in-set bal-acc 0.94" into "0.94 (95% CI ...), stable across 10 seeds",
 reports a threshold we could actually pick without peeking, proves the split is clean, and shows

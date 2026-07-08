@@ -68,12 +68,18 @@ def main(args):
             continue
         train_classes = sorted(set(generator[train_mask]))
         y_train = defake_head.encode_labels(generator[train_mask], train_classes)
+        X_train = X[train_mask]
 
-        cw = defake_head.compute_class_weights(y_train, len(train_classes))
+        # Carve a content-stable 10% micro-val from the LOGO training data so the head can select
+        # its best checkpoint (early stopping), matching finetune_defake_head.py. Without this,
+        # best_state is never set and the head keeps the last-epoch weights (fixed-epoch training).
+        sub_tr, sub_va, _ = defake_head.stratified_split(
+            y_train, test_size=0.0, val_size=0.1, seed=seed, keys=paths[train_mask])
+        cw = defake_head.compute_class_weights(y_train[sub_tr], len(train_classes))
         head = defake_head._MLPHead(in_dim=X.shape[1], num_classes=len(train_classes),
                                     device=args.device, seed=seed)
-        head.fit(X[train_mask], y_train, epochs=args.epochs, lr=args.lr,
-                 class_weights=cw, logger=logger)
+        head.fit(X_train[sub_tr], y_train[sub_tr], X_train[sub_va], y_train[sub_va],
+                 epochs=args.epochs, lr=args.lr, class_weights=cw, logger=logger)
 
         proba = head.predict_proba(X[test_mask])
         pred_idx = proba.argmax(axis=1)

@@ -22,6 +22,14 @@ scientifically reliable evaluation, not maximal accuracy.
   (PGGAN-v1/v2, StarGAN, FaceApp).
 - Per-dataset datasheets with processing history (results/datasheets.md; docs/DATASHEET_TEMPLATE.md).
 - Why diversity matters: avoids learning the London-DB artifact cluster.
+- Generator-spread caveat (state honestly): the 7 fake classes cover the two major paradigms
+  (2 diffusion families + GAN architectures incl. a face-manipulation tool), but the spread is
+  NARROW - all face-centric, temporally skewed, few architectures per paradigm, and each source
+  is a single model/checkpoint. Do NOT claim broad generator coverage; findings generalize
+  across paradigms only in the limited sense the data supports (see Limitations).
+- Split integrity is audited, not assumed (audit_split_leakage.py): exact (SHA-256) + near-
+  duplicate (perceptual-hash) checks across train/val/test, with attention to SD/FLUX sibling
+  seeds; per-generator balance counts per split are reported.
 
 ## 4. Preprocessing Analysis (GOLD concern #2)
 - Three variants (scripts/prepare_variants.py): "scaled" (squash - DISTORTS non-square
@@ -56,7 +64,7 @@ scientifically reliable evaluation, not maximal accuracy.
 
 ## 5. Detection: Real vs Fake (binary)
 - DE-FAKE classifier: inference via run_defake_batch.py; scored by score_defake_detection.py
-  (overall + per-generator + per-category + best-threshold).
+  (overall + per-generator + per-category + the fixed/validation-selected/oracle threshold blocks).
 - DCT linear-SVM (dct_svm.py): random split + out-of-set holdout.
 - Metrics: AUROC, AUPRC, balanced accuracy, precision, recall, macro-F1.
 - Result so far (pretrained DE-FAKE, balanced 722 real / 724 fake): AUROC 0.713, balanced acc
@@ -81,6 +89,17 @@ scientifically reliable evaluation, not maximal accuracy.
 - Out-of-set generalization fails for BOTH methods: DCT-SVM on held-out generators (FLUX +
   StyleGAN3, matched 1446 set) collapses to ~chance (balanced 0.54, AUROC 0.62), mirroring the
   DE-FAKE attribution collapse - neither method transfers to unseen generators.
+- Threshold hygiene (score_defake_detection.py -> overall.thresholds): report threshold-free
+  AUROC as the primary detection number, and the `validation_selected` operating point
+  (threshold chosen on a seeded stratified val holdout, metrics on disjoint test rows) as the
+  reportable balanced accuracy. The Youden's-J "best" number is kept ONLY as a labeled
+  `oracle_upper_bound` (fit on all rows -> optimistic, non-achievable); never quote it as the result.
+- Uncertainty: attach 95% stratified-bootstrap CIs to AUROC / balanced accuracy / per-generator
+  detection rate (bootstrap_metrics.py). With ~22 fake images/class the CIs are wide; report
+  them so the DE-FAKE-vs-DCT gap is read against its uncertainty.
+- Model comparison is PAIRED on the shared test paths (compare_models_significance.py): McNemar
+  exact test on discordant pairs + a paired bootstrap of the AUROC difference, so "DCT-SVM beats
+  DE-FAKE" is stated with a p-value / CI on the difference, not two independent point estimates.
 
 ## 6. Attribution: Which Generator (multi-class)
 - IMPORTANT: the provided DE-FAKE head is binary-only; there is no pretrained attribution.
@@ -95,6 +114,10 @@ scientifically reliable evaluation, not maximal accuracy.
   FLUX 100%, SD1.5 100%, FFHQ 96.7%, London-DB 95%, CelebA 93.8%, StyleGAN3 81.8% (weakest -
   all 4 of its errors -> FFHQ). Fake-only in-set attribution (eval): balanced 93.9% (n=66).
   Caveat: small per-fake-class support (~22 test each) -> report recalls with that uncertainty.
+- Uncertainty is quantified, not just noted: bootstrap_metrics.py gives 95% CIs on top-1 /
+  macro-F1 / balanced accuracy and on each per-class recall; seed_sweep.py re-splits + re-trains
+  the head over 10 seeds and reports mean/std/CI (so e.g. "StyleGAN3 recall 0.82" is quoted with
+  its across-seed spread, not as a single fragile point estimate).
 
 ## 7. Retraining / Fine-tuning (Phase E)
 - Frozen CLIP + fine-tuned head adding FLUX/StyleGAN3 (finetune_defake_head.py), faithful
@@ -163,7 +186,19 @@ scientifically reliable evaluation, not maximal accuracy.
   entropy-based rejection is only a partial mitigation (44% still confident @0.9).
 - GAN-Fingerprints attribution is out of scope for the current report (parked on the
   `ganfp-integrated` branch); DE-FAKE multi-class attribution is the method of record.
-- Small per-generator training set for fine-tuning.
+- Small per-generator training set for fine-tuning (~22 test images/fake class). All headline
+  numbers are therefore reported with 95% bootstrap CIs + a 10-seed sweep; treat point estimates
+  as indicative, not precise.
+- Narrow generator spread: 7 face-centric generators (2 diffusion families + a few GAN
+  architectures + one face-manipulation tool), each a single checkpoint, temporally skewed. The
+  paradigm-level claims (diffusion generalizes within family; face GANs collapse onto the real
+  manifold) are supported, but broad cross-generator coverage is NOT claimed.
+- Threshold dependence: DE-FAKE's default 0.5 is miscalibrated (fake-biased) on faces; results
+  are reported at a validation-selected operating point plus threshold-free AUROC, with the
+  Youden's-J number labeled as a non-achievable oracle upper bound only.
+- Split leakage: audited via exact + perceptual-hash duplicate checks across splits
+  (audit_split_leakage.py); report the audit result. Note we do NOT use identity-group splitting
+  (no identity labels; reals drawn from large pools), which the audit substitutes for.
 - OpenForensics (real+fake in one image, a strong confound control) planned, pending the JSON
   upload + a face-extraction step.
 

@@ -40,6 +40,51 @@ def _best_threshold(y_true, y_score):
     return float(thr[k]), float((tpr[k] + (1.0 - fpr[k])) / 2.0)
 
 
+def _metrics_at(y_true, y_score, thr):
+    """Detection metrics applying a hard threshold on prob_fake (AUROC stays threshold-free)."""
+    pred = (y_score >= thr).astype(int)
+    m = metrics.detection_metrics(y_true, pred, y_score)
+    m["threshold"] = float(thr)
+    return m
+
+
+def _threshold_hygiene(y_true, y_score, val_frac, seed):
+    """Three clearly separated operating points so the report never conflates them:
+
+      - fixed_0p5          : the honest default (prob_fake >= 0.5).
+      - validation_selected: threshold picked on a seeded stratified val holdout, metrics reported
+                             ONLY on the complementary test rows. This is the reportable point.
+      - oracle_upper_bound : best threshold fit on ALL rows -> optimistic, non-achievable ceiling.
+    """
+    from sklearn.model_selection import train_test_split
+
+    out = {"fixed_0p5": _metrics_at(y_true, y_score, 0.5)}
+    thr_oracle, _ = _best_threshold(y_true, y_score)
+    oracle = _metrics_at(y_true, y_score, thr_oracle)
+    oracle["note"] = "threshold fit on all rows; optimistic upper bound, not achievable in practice"
+    out["oracle_upper_bound"] = oracle
+
+    idx = np.arange(len(y_true))
+    try:
+        val_idx, test_idx = train_test_split(
+            idx, test_size=(1.0 - val_frac), stratify=y_true, random_state=seed)
+    except ValueError:
+        out["validation_selected"] = {"error": "could not stratify val/test split (too few rows)"}
+        return out
+    if len(np.unique(y_true[val_idx])) < 2 or len(np.unique(y_true[test_idx])) < 2:
+        out["validation_selected"] = {"error": "val or test split missing a class"}
+        return out
+    thr_val, _ = _best_threshold(y_true[val_idx], y_score[val_idx])
+    sel = _metrics_at(y_true[test_idx], y_score[test_idx], thr_val)
+    sel["val_frac"] = float(val_frac)
+    sel["seed"] = int(seed)
+    sel["n_val"] = int(len(val_idx))
+    sel["n_test"] = int(len(test_idx))
+    sel["note"] = "threshold selected on val holdout; metrics on disjoint test rows (reportable)"
+    out["validation_selected"] = sel
+    return out
+
+
 def _detection(df):
     y_true = schema.is_fake_label(df[schema.LABEL]).astype(int).values
     y_pred = schema.is_fake_predict(df[schema.DEFAKE_PREDICT]).astype(int).values
@@ -81,14 +126,13 @@ def main(args):
     logger.info("Rows: %d (excluded %d error rows)", total, errors)
 
     overall = _detection(df)
-    # Also report the balanced-accuracy-optimal operating point (default 0.5 is fake-biased here).
+    # Threshold hygiene: fixed 0.5 vs validation-selected vs oracle upper bound. The old single
+    # "best_threshold on all rows" number is retained ONLY as the labeled oracle_upper_bound.
     if schema.PROB_FAKE in df.columns:
         yt = schema.is_fake_label(df[schema.LABEL]).astype(int).values
         ys = pd.to_numeric(df[schema.PROB_FAKE], errors="coerce").values
         if len(np.unique(yt)) == 2 and np.isfinite(ys).all():
-            thr, bal = _best_threshold(yt, ys)
-            overall["best_threshold"] = thr
-            overall["balanced_accuracy_at_best"] = bal
+            overall["thresholds"] = _threshold_hygiene(yt, ys, args.val_frac, args.seed)
     logger.info("Overall detection: %s", json.dumps(overall))
 
     per_generator = {g: _group_summary(grp) for g, grp in df.groupby(schema.GENERATOR)}
@@ -108,4 +152,8 @@ if __name__ == "__main__":
     parser.add_argument("--predictions", required=True,
                         help="Predictions CSV from run_defake_batch.py (real schema)")
     parser.add_argument("--out_dir", required=True)
+    parser.add_argument("--val_frac", type=float, default=0.3,
+                        help="Fraction held out ONLY to pick the validation_selected threshold")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Seed for the stratified val/test threshold split")
     main(parser.parse_args())

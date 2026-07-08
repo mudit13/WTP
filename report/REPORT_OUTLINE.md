@@ -106,9 +106,12 @@ scientifically reliable evaluation, not maximal accuracy.
   Attribution is produced by our fine-tuned head (section 7) and scored with
   eval_defake_attribution.py (in-set vs out-of-set, confusion matrices). This is the primary
   (and current) attribution method.
-- GAN-Fingerprints (Yu2019) is PARKED as an optional second method (deprioritized per the
-  supervisor: DE-FAKE multi-class first). A PyTorch re-implementation exists on the
-  `ganfp-integrated` branch; only add it back if time allows.
+- GAN-Fingerprints (Yu2019-inspired) is the SECOND attribution method (on main): a PyTorch
+  re-implementation with two paths (residual/spectrum features + MLP; and an end-to-end CNN with
+  a fixed Fridrich-Kodovsky SRM front-end), benchmarked head-to-head against DE-FAKE on one
+  shared split (benchmark_attribution.py). Honestly "Yu2019-inspired", not a byte-faithful port.
+  DE-FAKE multi-class remains the primary attribution method; GAN-fp targets the GAN-specific
+  traces CLIP misses.
 - Results (fine-tuned head, controlled/JPEG-normalized aspect variant; 6 classes = 3 reals +
   SD1.5/FLUX/StyleGAN3): in-set test top-1 94.8% / balanced 94.5% (n=210). Per-class recall:
   FLUX 100%, SD1.5 100%, FFHQ 96.7%, London-DB 95%, CelebA 93.8%, StyleGAN3 81.8% (weakest -
@@ -184,8 +187,9 @@ scientifically reliable evaluation, not maximal accuracy.
 - Closed-set classifiers cannot reject unknown generators (forced labels). QUANTIFIED: ~98% of
   unseen-GAN images are confidently assigned a REAL class (false-known rate 0.96 @0.5); an
   entropy-based rejection is only a partial mitigation (44% still confident @0.9).
-- GAN-Fingerprints attribution is out of scope for the current report (parked on the
-  `ganfp-integrated` branch); DE-FAKE multi-class attribution is the method of record.
+- GAN-Fingerprints (Yu2019-inspired) is included as a SECOND attribution method (on main),
+  benchmarked against DE-FAKE; it is a re-implementation of the method, not a byte-faithful port.
+  DE-FAKE multi-class attribution remains the method of record.
 - Small per-generator training set for fine-tuning (~22 test images/fake class). All headline
   numbers are therefore reported with 95% bootstrap CIs + a 10-seed sweep; treat point estimates
   as indicative, not precise.

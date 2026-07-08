@@ -11,8 +11,8 @@ part. Goal of the project: build and evaluate AI-image **detection** (real vs fa
   generators?
 - **RQ2 - Attribution:** how well can we identify the *source generator*, in-set vs out-of-set?
   (The pretrained DE-FAKE head is binary only, so attribution comes from our own fine-tuned
-  head. A GAN-fingerprint method was explored but is PARKED on the `ganfp-integrated` branch per
-  the supervisor's steer that DE-FAKE multi-class takes priority.)
+  head. A Yu2019-inspired GAN-fingerprint method is also included on `main` as a second
+  attribution method, benchmarked against DE-FAKE - not a byte-faithful port.)
 
 Two things shape every experiment, both from the GOLD review:
 1. The **real class** must be diverse and balanced (not just one narrow dataset).
@@ -71,7 +71,7 @@ Each is a self-contained chunk; exact commands are in `docs/PIPELINE.md` (step n
 | WS1 | Data + index + datasheets (diverse, balanced real class) | `build_master_index.py`, `make_datasheets.py` | `master_metadata.csv`, datasheets |
 | WS2 | Preprocessing variants (scaled/cropped/**aspect**, common size 256, PNG; aspect = controlled) | `prepare_variants.py` | `index_scaled.csv`, `index_cropped.csv`, `index_aspect.csv` |
 | WS3 | Detection: DE-FAKE (binary) + DCT-SVM, raw vs controlled | `run_defake_batch.py`, `score_defake_detection.py`, `dct_extract_features.py`, `dct_svm.py` | detection metrics |
-| WS4 | Attribution (DE-FAKE multi-class; GAN-fp PARKED on `ganfp-integrated`) | `eval_defake_attribution.py` | attribution metrics |
+| WS4 | Attribution (DE-FAKE multi-class + GAN-fp Yu2019-inspired, benchmarked) | `eval_defake_attribution.py`, `train_ganfp.py`, `train_ganfp_cnn.py`, `benchmark_attribution.py` | attribution metrics |
 | WS5 | Fine-tune the attribution head + leave-one-generator-out | `finetune_defake_head.py`, `leave_one_generator_out.py` | trained head, LOGO results |
 | WS6 | Out-of-set analysis (forced labels, confidence, entropy) | `out_of_set_analysis.py` | OOS report |
 | WS7 | Robustness (JPEG/blur/resize/sharpen on held-out test) | `make_split.py`, `robustness_perturb.py` | robustness drops |
@@ -100,5 +100,8 @@ the indices.)
 - Detection (DE-FAKE + DCT), attribution (fine-tuned head), LOGO + out-of-set: DONE.
 - Robustness (WS7): DONE - DE-FAKE aggregate accuracy stable under all 8 perturbations, but
   per-image labels volatile (JPEG q30 flips 33%). See PROJECT_LOG 9d.
-- Remaining: OpenForensics ingestion pending the supervisor's JSON (only external blocker).
-- Pending supervisor: OpenForensics (optional), report/exam date. GAN-fp parked on `ganfp-integrated`.
+- GAN-fp (Yu2019-inspired) is on `main`: feature + CNN paths + benchmark (WS4).
+- OpenForensics: extraction (real+fake face crops) done by a teammate; wired via the
+  `openforensics_fake` config entry + `ingest_openforensics.py` (sort crops into real/fake) ->
+  `build_master_index.py`. Run the metadata-only size-confound check on the OF rows once merged.
+- Pending supervisor: report/exam date.

@@ -14,9 +14,9 @@ against each paper before final submission.
   "Leveraging Frequency Analysis for Deep Fake Image Recognition." ICML 2020.
   (repo: `/workspace/GANDCTAnalysis`.)
 - **GAN Fingerprints** - Yu, Davis, Fritz. "Attributing Fake Images to GANs: Learning and
-  Analyzing GAN Fingerprints." ICCV 2019. (repo: `/workspace/GANFingerprints`; related work. A
-  PyTorch re-implementation was explored but is PARKED on the `ganfp-integrated` branch,
-  deprioritized in favor of DE-FAKE multi-class attribution.)
+  Analyzing GAN Fingerprints." ICCV 2019. (repo: `/workspace/GANFingerprints`; the original is on
+  a deprecated stack, so we provide a Yu2019-INSPIRED PyTorch re-implementation on `main`
+  (`ganfp_net.py`) with a fixed SRM front-end. Not a byte-faithful port of their code.)
 - **CLIP** - Radford et al. "Learning Transferable Visual Models From Natural Language
   Supervision." ICML 2021.
 - **BLIP** - Li, Li, Xiong, Hoi. "BLIP: Bootstrapping Language-Image Pre-training for Unified

@@ -27,12 +27,13 @@ kept by the team, not committed.)
   pretrained multi-class attribution. So attribution comes from our fine-tuned head (item 3),
   and the report frames RQ2 as "can a fine-tuned head attribute in-set vs out-of-set".
 
-- **GAN-Fingerprints (PARKED).** The repo on the server is code-only and runs on a deprecated
-  stack (Chainer/cupy/CUDA 10). We explored a PyTorch re-implementation (residual/spectrum
-  features + a learned CNN with an SRM front-end) as an optional second attribution method, but
-  per the supervisor's steer (DE-FAKE multi-class attribution takes priority) it is now
-  DEPRIORITIZED and kept off `main`. The full implementation is preserved on the
-  `ganfp-integrated` branch and can be re-added later if time allows.
+- **GAN-Fingerprints (Yu2019-inspired; on main).** The original repo is code-only on a
+  deprecated stack (Chainer/cupy/CUDA 10), so we re-implement the METHOD in PyTorch (residual/
+  spectrum features + a learned CNN with a fixed Fridrich-Kodovsky SRM front-end) as a second
+  attribution method beside DE-FAKE - honestly "Yu2019-inspired", not a byte-faithful port. It
+  was briefly parked while DE-FAKE multi-class took priority, then consolidated back onto `main`
+  in complete form (both paths + benchmark). DE-FAKE multi-class remains the method of record;
+  GAN-fp is the complementary GAN-trace attribution.
 
 - **Preprocessing study is now central, not cosmetic.** Inspecting the data showed format and
   resolution almost perfectly predict the label (reals include JPEG; fakes are all PNG;

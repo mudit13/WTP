@@ -247,16 +247,16 @@ def _build_srm_bank():
     # ---- SPAM 4th-order 1-D: [1,-4,6,-4,1] in H / V / 2 diagonals ------------
     add5(np.array([
         [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
         [1, -4, 6, -4, 1],
         [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0]], dtype=np.float32), "spam4")   # horizontal 4th
+        [0, 0, 0, 0, 0]], dtype=np.float32), "spam4")   # horizontal 4th (centered on row 2)
     add5(np.array([
-        [0, 1, 0, 0, 0],
-        [0, -4, 0, 0, 0],
-        [0, 6, 0, 0, 0],
-        [0, -4, 0, 0, 0],
-        [0, 1, 0, 0, 0]], dtype=np.float32), "spam4")   # vertical 4th
+        [0, 0, 1, 0, 0],
+        [0, 0, -4, 0, 0],
+        [0, 0, 6, 0, 0],
+        [0, 0, -4, 0, 0],
+        [0, 0, 1, 0, 0]], dtype=np.float32), "spam4")   # vertical 4th (centered on col 2)
     add5(np.array([
         [1, 0, 0, 0, 0],
         [0, -4, 0, 0, 0],
@@ -273,28 +273,28 @@ def _build_srm_bank():
     # ---- SPAM 3rd-order 1-D: [1,-3,3,-1] in H / V / 2 diagonals --------------
     add5(np.array([
         [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
         [1, -3, 3, -1, 0],
         [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0]], dtype=np.float32), "spam3")   # horizontal 3rd (left-pointing)
+        [0, 0, 0, 0, 0]], dtype=np.float32), "spam3")   # horizontal 3rd (left-pointing, row 2)
     add5(np.array([
+        [0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0],
         [0, 1, -3, 3, -1],
         [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0]], dtype=np.float32), "spam3")   # horizontal 3rd (right-pointing)
+        [0, 0, 0, 0, 0]], dtype=np.float32), "spam3")   # horizontal 3rd (right-pointing, row 2)
     add5(np.array([
-        [0, 1, 0, 0, 0],
-        [0, -3, 0, 0, 0],
-        [0, 3, 0, 0, 0],
-        [0, -1, 0, 0, 0],
-        [0, 0, 0, 0, 0]], dtype=np.float32), "spam3")   # vertical 3rd (down-pointing)
+        [0, 0, 1, 0, 0],
+        [0, 0, -3, 0, 0],
+        [0, 0, 3, 0, 0],
+        [0, 0, -1, 0, 0],
+        [0, 0, 0, 0, 0]], dtype=np.float32), "spam3")   # vertical 3rd (down-pointing, col 2)
     add5(np.array([
         [0, 0, 0, 0, 0],
-        [0, -1, 0, 0, 0],
-        [0, 3, 0, 0, 0],
-        [0, -3, 0, 0, 0],
-        [0, 1, 0, 0, 0]], dtype=np.float32), "spam3")   # vertical 3rd (up-pointing)
+        [0, 0, -1, 0, 0],
+        [0, 0, 3, 0, 0],
+        [0, 0, -3, 0, 0],
+        [0, 0, 1, 0, 0]], dtype=np.float32), "spam3")   # vertical 3rd (up-pointing, col 2)
     add5(np.array([
         [1, 0, 0, 0, 0],
         [0, -3, 0, 0, 0],

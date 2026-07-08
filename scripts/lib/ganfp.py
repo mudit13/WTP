@@ -320,9 +320,13 @@ class FingerprintStandardizer:
 
     # -- internal: clamp n_components to a rank-safe value ------------------
     @staticmethod
-    def _clamped_components(want: int, n_samples: int) -> int:
-        """PCA n_components cannot exceed n_samples-1 (and n_features)."""
-        return max(1, min(int(want), int(n_samples) - 1))
+    def _clamped_components(want: int, n_samples: int, n_features: int = None) -> int:
+        """PCA n_components cannot exceed n_samples-1 nor n_features. Clamp to both so a small
+        feature dimension (e.g. low feat_size) can never make PCA(n_components=...) crash."""
+        hi = int(n_samples) - 1
+        if n_features is not None:
+            hi = min(hi, int(n_features))
+        return max(1, min(int(want), hi))
 
     def fit(self, X_train: np.ndarray,
             dct_features: Optional[np.ndarray] = None) -> "FingerprintStandardizer":
@@ -337,7 +341,7 @@ class FingerprintStandardizer:
         if n < 2:
             raise ValueError("Need at least 2 train samples to fit scaler+PCA.")
 
-        comp = self._clamped_components(self.pca_components, n)
+        comp = self._clamped_components(self.pca_components, n, X_train.shape[1])
         self.scaler_ = StandardScaler().fit(X_train)
         self.pca_ = PCA(n_components=comp, random_state=0).fit(
             self.scaler_.transform(X_train))
@@ -347,7 +351,7 @@ class FingerprintStandardizer:
             D = np.asarray(dct_features, dtype=np.float32)
             if D.shape[0] != n:
                 raise ValueError("dct_features row count must match X_train.")
-            dcomp = self._clamped_components(self.dct_components, n)
+            dcomp = self._clamped_components(self.dct_components, n, D.shape[1])
             self.dct_scaler_ = StandardScaler().fit(D)
             self.dct_pca_ = PCA(n_components=dcomp, random_state=0).fit(
                 self.dct_scaler_.transform(D))

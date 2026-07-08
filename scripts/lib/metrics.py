@@ -72,9 +72,16 @@ def attribution_metrics(y_true: Sequence,
             "support": support,
             "recall": float(correct / support) if support else 0.0,
         }
+    # Macro-F1 over the classes that actually occur in y_true. This excludes synthetic
+    # predict-only buckets (e.g. attribution_slice's "__other__", which is never a true label)
+    # so they do not inject a guaranteed F1=0 that drags the slice macro-F1 down.
+    true_present = set(np.unique(y_true).tolist())
+    f1_labels = [lab for lab in labels if lab in true_present]
+    macro_f1 = (float(f1_score(y_true, y_pred, labels=f1_labels,
+                               average="macro", zero_division=0)) if f1_labels else 0.0)
     return {
         "top1_accuracy": float(accuracy_score(y_true, y_pred)),
-        "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
+        "macro_f1": macro_f1,
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
         "labels": [str(x) for x in labels],
         "confusion_matrix": cm.tolist(),
@@ -187,7 +194,9 @@ def save_confusion_matrix(cm: np.ndarray,
         cm_display = cm
 
     if csv_path is not None:
-        pd.DataFrame(cm, index=labels, columns=labels).to_csv(csv_path)
+        # Save what the PNG shows (normalized proportions when normalize=True, raw counts
+        # otherwise) so the CSV and figure never disagree.
+        pd.DataFrame(cm_display, index=labels, columns=labels).to_csv(csv_path)
 
     fig, ax = plt.subplots(figsize=(1.4 * len(labels) + 2, 1.4 * len(labels) + 2))
     im = ax.imshow(cm_display, interpolation="nearest", cmap="Blues")

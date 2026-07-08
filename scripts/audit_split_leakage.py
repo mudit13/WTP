@@ -143,7 +143,9 @@ def main(args):
                                 "splits": sorted(splits)})
 
     # Near-duplicates across DIFFERENT splits (Hamming <= threshold on dHash).
-    eval_splits = {"val", "test"}
+    # Include "unseen" so near-duplicates between TRAIN and out-of-set generators are detected -
+    # that train<->unseen bridge is exactly the population the out-of-set claims depend on.
+    eval_splits = {"val", "test", "unseen"}
     near_cross = []
     for i in range(len(rows)):
         for j in range(i + 1, len(rows)):

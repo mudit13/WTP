@@ -47,7 +47,10 @@ def _resolve_truth(pred, master_csv, logger):
     if not master_csv:
         raise SystemExit("Predictions lack true_generator and no --master given.")
     meta = pd.read_csv(master_csv)[[schema.PATH, schema.GENERATOR]]
-    df = pred.merge(meta, on=schema.PATH, how="inner")
+    # Drop any pre-existing generator column so the merge does not create generator_x/_y
+    # (which would make the rename a no-op and crash downstream on missing true_generator).
+    df = pred.drop(columns=[schema.GENERATOR], errors="ignore").merge(
+        meta, on=schema.PATH, how="inner")
     df = df.rename(columns={schema.GENERATOR: "true_generator"})
     logger.info("Merged %d rows with master truth", len(df))
     return df

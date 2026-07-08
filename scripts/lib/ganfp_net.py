@@ -673,14 +673,18 @@ class GANFpClassifier:
                 running += float(loss.item())
                 nb += 1
             if val_loader is not None:
-                val_acc = self._eval_accuracy(val_loader)
-                if val_acc > best_val:
-                    best_val = val_acc
+                # Select on BALANCED accuracy (mean per-class recall), matching the MLP head
+                # (defake_head.py). Plain top-1 is majority-class-biased, so on imbalanced
+                # generator sizes it would pick a different checkpoint than Path A and make the
+                # Path A vs Path B benchmark unfair.
+                val_bal = self._eval_balanced_accuracy(val_loader)
+                if val_bal > best_val:
+                    best_val = val_bal
                     best_state = {k: v.detach().clone()
                                   for k, v in self.cnn.model.state_dict().items()}
                 if logger and (epoch % 5 == 0 or epoch == epochs - 1):
-                    logger.info("cnn epoch %d loss=%.4f val_acc=%.3f",
-                                epoch, running / max(1, nb), val_acc)
+                    logger.info("cnn epoch %d loss=%.4f val_balAcc=%.3f",
+                                epoch, running / max(1, nb), val_bal)
         if best_state is not None:
             self.cnn.model.load_state_dict(best_state)
         return self
@@ -699,6 +703,28 @@ class GANFpClassifier:
                 correct += int((pred == yb).sum().item())
                 total += int(yb.numel())
         return correct / max(1, total)
+
+    def _eval_balanced_accuracy(self, loader) -> float:
+        """Mean per-class recall (balanced accuracy) on a loader. Used for checkpoint selection
+        so it matches the MLP head's criterion (defake_head.balanced_accuracy)."""
+        import torch
+
+        self.cnn.model.eval()
+        preds, labels = [], []
+        with torch.no_grad():
+            for xb, yb in loader:
+                xb = xb.to(self.device)
+                preds.append(self.cnn(xb).argmax(dim=1).cpu().numpy())
+                labels.append(yb.numpy())
+        if not preds:
+            return 0.0
+        y_pred = np.concatenate(preds)
+        y_true = np.concatenate(labels)
+        classes = np.unique(y_true)
+        if classes.size == 0:
+            return 0.0
+        recalls = [float((y_pred[y_true == c] == c).mean()) for c in classes]
+        return float(np.mean(recalls))
 
     def predict_proba_loader(self, loader) -> np.ndarray:
         """Return softmax probabilities [N, num_classes] for a DataLoader."""

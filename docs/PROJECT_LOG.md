@@ -137,7 +137,8 @@ ranking quality from operating-point choice.
 
 **Pipeline note:** the unified `master_metadata.csv` already contains DFFD rows, and
 `run_defake_batch.py` processes every row, so detection inference is `run_defake_batch.py`
-ALONE (no `run_defake_dffd.py` + `merge_predictions.py`, which would double-count DFFD).
+ALONE (no separate DFFD pass + `merge_predictions.py`, which would double-count DFFD). The
+DFFD-only subset run is now `run_defake_batch.py --dataset_filter dffd_`.
 
 ## 9b. DE-FAKE multi-class attribution results (fine-tuned head, aspect variant)
 
@@ -254,7 +255,8 @@ downsampled to a fixed grid, L2-normalized); `scripts/train_ganfp.py` trains
 `ganfp_metrics.json`/confusion matrix/per-image/`ganfp_head.pt`); `scripts/run_ganfp_infer.py`
 emits a per-image CSV the existing `eval_defake_attribution.py` consumes unchanged. A `ganfp:`
 block was added to `configs/config.yaml`; `tests/test_ganfp.py` covers the feature math (no
-torch). `run_ganfp.py` is now just the weight-discovery/scope-note helper.
+torch). (The old `run_ganfp.py` weight-discovery/scope-note helper was retired once the
+reproduction landed on main.)
 
 **Why:** Verified on the server that no pretrained GAN-fp weights exist (`models/` = DE-FAKE +
 generators only) and the legacy `/workspace/GANFingerprints` repo is Chainer/cupy (dead) built
@@ -333,6 +335,18 @@ gated via `pytest.importorskip`) the CNN forward shape / param budget / one-step
   confound. Requires preprocessing (parse the per-image JSON, extract + label faces). Dennis is
   uploading the missing JSON files to the GPU PC (a subset was missing). -> Added to the data
   backlog (blocked on the JSON upload + a face-extraction script).
+  - **Decision (how OF is wired):** because Dennis's strongest steer was to DIVERSIFY the narrow
+    real class (GOLD concern #1), OpenForensics **reals become a TRAINED real class** (added to
+    `attribution.real_generators`, `sample_size: 300` to size-match FFHQ/CelebA). OpenForensics
+    **fakes are kept OUT-OF-SET** (`OpenForensics-fake`) as a genuinely unseen manipulation type
+    = clean generalization probe. Same-photo OF real/fake pairs (shared JPEG q95) still serve as
+    the format-matched DETECTION confound benchmark. Trade-off accepted: OF reals are no longer a
+    held-out real probe (diversify intent wins for the real side); OF-fake stays the held-out fake
+    probe. Requires re-running the attribution fine-tune + detection with the new real class.
+  - **Confound gate (colleague's crop-size concern):** before trusting OF numbers, run the
+    metadata-only probe restricted to OF rows (`metadata_confound_probe.py --source_filter
+    openforensics`). ~0.5 balanced acc/AUROC = OF is clean; if high (crop bounding-boxes leak the
+    label by size), route OF through the `aspect` normalization and re-probe to ~0.5 first.
 
 **Planned confound-verification experiment (to answer Dennis's question directly):**
 1. Train a trivial classifier on *metadata only* (width, height, on-disk format) -> if it

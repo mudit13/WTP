@@ -6,13 +6,17 @@ This is the secondary detector that complements DE-FAKE. Per the GOLD review, th
 LINEAR-kernel 2-class classifier (real vs fake) - documented explicitly to avoid the
 "what kind of classifier is this" confusion from the interim meeting.
 
-Two evaluation modes:
+Modes:
   random        : stratified random train/test split (standard in-set sanity check)
   out_of_set    : hold out one or more generators entirely from training and test only on
                   them (measures detection generalization to unseen generators)
+  predict       : load a PREVIOUSLY fitted model (--model dct_svm.joblib) and score an external
+                  feature set (e.g. perturbed images for the robustness pipeline). No retrain;
+                  writes dct_per_image.csv (full_path,generator,y_true,score,pred) that
+                  robustness_perturb.py --mode score consumes (--pred_col pred --conf_col score).
 
-Outputs metrics JSON + a fitted model (joblib). Uses the SVM decision function as the
-"fake" score for AUROC/AUPRC.
+random/out_of_set output metrics JSON + a fitted model (joblib). Uses the SVM decision function
+as the "fake" score for AUROC/AUPRC.
 
 Usage:
   $WTP_PY_DEFAKE scripts/dct_svm.py --features results/dct_features_scaled.npz \
@@ -20,6 +24,9 @@ Usage:
   $WTP_PY_DEFAKE scripts/dct_svm.py --features results/dct_features_scaled.npz \
       --out_dir results/dct_svm_oos/ --mode out_of_set \
       --holdout_generators "FLUX.1-schnell" "StyleGAN3-FFHQ"
+  $WTP_PY_DEFAKE scripts/dct_svm.py --mode predict \
+      --model results/dct_svm_aspect/dct_svm.joblib \
+      --features results/robust/dct_jpeg30.npz --out_dir results/robust/dct_jpeg30/
 """
 import argparse
 import csv
@@ -83,6 +90,27 @@ def main(args):
     summary = {"mode": args.mode, "n_total": int(len(y))}
     te_idx = None  # test-set indices, for the per-image dump
 
+    if args.mode == "predict":
+        if not args.model:
+            raise SystemExit("--model (a saved dct_svm.joblib) required for predict mode")
+        import joblib
+        clf = joblib.load(args.model)
+        scores = clf.decision_function(X)
+        preds = (scores >= 0).astype(int)
+        # Metrics are only meaningful if the external set carries both classes (it may not, e.g.
+        # a single-perturbation slice); guard so the per-image CSV is always written.
+        if len(np.unique(y)) == 2:
+            summary["test"] = metrics.detection_metrics(y, preds, y_score=scores)
+            logger.info("Predict metrics: %s", json.dumps(summary["test"]))
+        else:
+            summary["note"] = "single-class external set; per-image predictions only"
+        per_image = _write_per_image(args.out_dir, paths, generator, y, scores, preds)
+        logger.info("Wrote per-image predictions to %s", per_image)
+        with open(os.path.join(args.out_dir, "metrics.json"), "w", encoding="utf-8") as fh:
+            json.dump(summary, fh, indent=2)
+        logger.info("Wrote results to %s", args.out_dir)
+        return
+
     if args.mode == "random":
         from sklearn.model_selection import train_test_split
         idx = np.arange(len(y))
@@ -141,7 +169,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Linear-SVM real/fake detector on DCT.")
     parser.add_argument("--features", required=True, help=".npz from dct_extract_features.py")
     parser.add_argument("--out_dir", required=True)
-    parser.add_argument("--mode", choices=["random", "out_of_set"], default="random")
+    parser.add_argument("--mode", choices=["random", "out_of_set", "predict"], default="random")
+    parser.add_argument("--model", default=None,
+                        help="Saved dct_svm.joblib to load (required for --mode predict).")
     parser.add_argument("--holdout_generators", nargs="*", default=None)
     parser.add_argument("--test_size", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)

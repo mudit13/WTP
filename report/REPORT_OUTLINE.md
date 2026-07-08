@@ -16,10 +16,12 @@ scientifically reliable evaluation, not maximal accuracy.
 - Dang2020 (DFFD dataset, attention-CNN face manipulation).
 
 ## 3. Datasets
-- Real: London-DB (neutral_front only - very narrow) + DFFD FFHQ + OpenForensics reals
-  (pending) - diversified per GOLD concern #1.
+- Real: London-DB (neutral_front only - very narrow) + DFFD FFHQ + CelebA + OpenForensics reals
+  (in-the-wild faces, capped 300) - diversified per GOLD concern #1 (OpenForensics reals added on
+  Dennis's strongest steer; they become a TRAINED real class).
 - Fake: SD1.5 (near in-set), FLUX.1-schnell, StyleGAN3-FFHQ, and DFFD GANs
-  (PGGAN-v1/v2, StarGAN, FaceApp).
+  (PGGAN-v1/v2, StarGAN, FaceApp). OpenForensics-fake is added as an OUT-OF-SET (unseen
+  manipulation) fake, cropped from the same source photos as the OF reals.
 - Per-dataset datasheets with processing history (results/datasheets.md; docs/DATASHEET_TEMPLATE.md).
 - Why diversity matters: avoids learning the London-DB artifact cluster.
 - Generator-spread caveat (state honestly): the 7 fake classes cover the two major paradigms
@@ -100,6 +102,12 @@ scientifically reliable evaluation, not maximal accuracy.
 - Model comparison is PAIRED on the shared test paths (compare_models_significance.py): McNemar
   exact test on discordant pairs + a paired bootstrap of the AUROC difference, so "DCT-SVM beats
   DE-FAKE" is stated with a p-value / CI on the difference, not two independent point estimates.
+- OpenForensics same-photo confound benchmark (pending run): OF real and fake faces are cropped
+  from the SAME source photos through one JPEG q95 pipeline, so within OF there is no format/source
+  gap between classes. Report detection on the OF subset as the cleanest confound-controlled test,
+  but only after the OF-only metadata probe (metadata_confound_probe.py --source_filter
+  openforensics) confirms crop SIZE does not leak the label (~0.5); if it does, use the aspect
+  variant.
 
 ## 6. Attribution: Which Generator (multi-class)
 - IMPORTANT: the provided DE-FAKE head is binary-only; there is no pretrained attribution.
@@ -113,7 +121,9 @@ scientifically reliable evaluation, not maximal accuracy.
   DE-FAKE multi-class remains the primary attribution method; GAN-fp targets the GAN-specific
   traces CLIP misses.
 - Results (fine-tuned head, controlled/JPEG-normalized aspect variant; 6 classes = 3 reals +
-  SD1.5/FLUX/StyleGAN3): in-set test top-1 94.8% / balanced 94.5% (n=210). Per-class recall:
+  SD1.5/FLUX/StyleGAN3). NOTE: adding OpenForensics as a 4th real class makes this a 7-class run;
+  the numbers below predate that and must be regenerated after the OF re-run. In-set test top-1
+  94.8% / balanced 94.5% (n=210). Per-class recall:
   FLUX 100%, SD1.5 100%, FFHQ 96.7%, London-DB 95%, CelebA 93.8%, StyleGAN3 81.8% (weakest -
   all 4 of its errors -> FFHQ). Fake-only in-set attribution (eval): balanced 93.9% (n=66).
   Caveat: small per-fake-class support (~22 test each) -> report recalls with that uncertainty.
@@ -147,7 +157,9 @@ scientifically reliable evaluation, not maximal accuracy.
     detection FAILS; StyleGAN3 collapses onto its FFHQ training source (mean conf 0.76, FKR 0.88).
   * ROBUSTNESS: the same asymmetry reproduces on the raw (JPEG-aug OFF) baseline - StyleGAN3->FFHQ
     102/108 (FKR 0.95), FLUX->SD1.5 81/108 (FKR 0.87). So the GAN-collapse is not an artifact of
-    the JPEG normalization.
+    the JPEG normalization. (Appendix, optional: a raw-GEOMETRY LOGO on the scaled/squash index
+    with JPEG-aug off isolates the remaining geometry axis - PIPELINE step 9; the qualitative
+    collapse is expected to persist since in-set attribution showed geometry buys only ~1.5 pts.)
 - Unifying mechanism: face GANs trained on real face datasets (StyleGAN3<-FFHQ; PGGAN/StarGAN/
   FaceApp on face data) collapse onto the real manifold, whereas diffusion generalizes within
   its family. This is consistent across THREE independent measurements: binary detection
@@ -203,8 +215,11 @@ scientifically reliable evaluation, not maximal accuracy.
 - Split leakage: audited via exact + perceptual-hash duplicate checks across splits
   (audit_split_leakage.py); report the audit result. Note we do NOT use identity-group splitting
   (no identity labels; reals drawn from large pools), which the audit substitutes for.
-- OpenForensics (real+fake in one image, a strong confound control) planned, pending the JSON
-  upload + a face-extraction step.
+- OpenForensics wiring: reals are added as a TRAINED real class to diversify the narrow real class
+  (Dennis's #1 steer), OF-fake is kept out-of-set (unseen manipulation), and the same-photo pairs
+  are a strong within-dataset confound control. Consequence to state: OF reals are therefore NOT a
+  held-out real distribution (that role is given up for diversification); OF-fake remains the
+  held-out unseen-fake probe. Guarded by an OF-only crop-size confound check before use.
 
 ## 11. Future Work
 - SOTA open-set methods raised at interim: LIDA (low-bit-plane attribution) and OmniDFA

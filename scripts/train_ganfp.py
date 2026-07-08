@@ -90,9 +90,11 @@ def main(args):
     y = defake_head.encode_labels(generator, classes)
     logger.info("Training over %d classes: %s", len(classes), classes)
 
+    # Content-stable split keyed on full_path (same scheme as finetune_defake_head.py) so the
+    # GAN-fp and DE-FAKE test sets are the SAME images -> the benchmark comparison is valid.
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
-        val_size=config.get("val_size", 0.1), seed=seed)
+        val_size=config.get("val_size", 0.1), seed=seed, keys=path_arr)
     logger.info("Split sizes: train=%d val=%d test=%d", len(tr), len(va), len(te))
 
     cw = defake_head.compute_class_weights(y[tr], len(classes))

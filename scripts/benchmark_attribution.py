@@ -326,10 +326,12 @@ def main(args):
     labels_int = y.tolist()
     logger.info("Benchmarking over %d classes: %s", len(classes), classes)
 
-    # ONE seeded stratified split, shared verbatim by both paths.
+    # ONE seeded stratified split, shared verbatim by both paths. Keyed on full_path (same scheme
+    # as finetune_defake_head.py) so the benchmark test set matches DE-FAKE's -> ingesting
+    # --defake_csv predictions is apples-to-apples (no DE-FAKE train rows leak into the compare).
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
-        val_size=config.get("val_size", 0.1), seed=seed)
+        val_size=config.get("val_size", 0.1), seed=seed, keys=np.asarray(paths_kept))
     logger.info("Shared split: train=%d val=%d test=%d", len(tr), len(va), len(te))
 
     # --- Path A --------------------------------------------------------------------

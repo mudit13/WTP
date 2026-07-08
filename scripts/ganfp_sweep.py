@@ -69,7 +69,7 @@ def _build_split(args, config, seed, common_size, augment, hflip, real_set):
     y = defake_head.encode_labels(np.array(generators, dtype=object), classes)
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
-        val_size=config.get("val_size", 0.1), seed=seed)
+        val_size=config.get("val_size", 0.1), seed=seed, keys=np.asarray(paths))
     labels_int = y.tolist()
     return paths, labels_int, classes, y, tr, va, te
 

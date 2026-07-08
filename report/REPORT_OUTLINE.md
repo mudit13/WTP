@@ -102,6 +102,12 @@ scientifically reliable evaluation, not maximal accuracy.
 - Model comparison is PAIRED on the shared test paths (compare_models_significance.py): McNemar
   exact test on discordant pairs + a paired bootstrap of the AUROC difference, so "DCT-SVM beats
   DE-FAKE" is stated with a p-value / CI on the difference, not two independent point estimates.
+- OpenForensics crop-size confound, MEASURED (metadata-only probe on 600 OF crops,
+  metadata_confound_probe.py --source_filter openforensics): RAW OF is real/fake separable from
+  crop GEOMETRY alone at balanced acc 0.608 / AUROC 0.634 (aspect + area, NOT format - is_png/
+  is_jpeg importance 0, since OF is uniformly JPEG q95). After aspect normalization it drops to
+  exactly chance (0.500 / 0.500). So OF is used ONLY on the aspect variant; raw-geometry OF numbers
+  are not reported. Same measure-then-remove logic as the format confound, on the size axis.
 - OpenForensics same-photo confound benchmark (pending run): OF real and fake faces are cropped
   from the SAME source photos through one JPEG q95 pipeline, so within OF there is no format/source
   gap between classes. Report detection on the OF subset as the cleanest confound-controlled test,

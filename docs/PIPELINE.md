@@ -34,10 +34,26 @@ $PY scripts/build_master_index.py --config $CFG --out $DS/master_metadata.csv \
     --reconcile $DS/defake_predictions_all.csv
 
 # 1b. (WS1) Diversify reals. OpenForensics reals are a TRAINED real class (Dennis's #1 steer);
-#     OpenForensics-fake is out-of-set. Sort the teammate's flat crops into real/fake, then rebuild
-#     the master index (both OF entries are capped at sample_size 300 in config.yaml):
-$PY scripts/ingest_openforensics.py --crops_csv $DS/openforensics/crops.csv \
-    --crops_dir $DS/openforensics/crops --out_root $DS/openforensics --mode symlink
+#     OpenForensics-fake is out-of-set. Both are capped at sample_size 300 in config.yaml.
+#
+#   PRIMARY (self-contained): crop faces straight from the raw OpenForensics JSONs into
+#   real/ + fake/. RUN ON THE HOST (the /vol1 source is not mounted in the container) with the
+#   host python; --out_dir must be the host path the container sees as $DS/openforensics. On this
+#   server that mapping is host /vol2/pitsec_sose26_topic8/sharedDockerDir/dataset == container
+#   /pitsec_sose26_topic8/dataset, so:
+#     # (optional) clear any prior crops in the shared dir first:
+#     rm -rf /vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics/*
+#     python3 scripts/extract_openforensics.py \
+#         --root /vol1/share/DeepFake/OpenForensics \
+#         --out_dir /vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics \
+#         --splits Val --per_class_limit 300
+#
+#   ALTERNATIVE (if you already have FLAT crops + a label CSV from a prior extraction): sort them
+#   into real/ + fake/ instead of re-cropping:
+#     $PY scripts/ingest_openforensics.py --crops_csv <of_metadata.csv> \
+#         --crops_dir <flat crops dir> --out_root $DS/openforensics --mode symlink
+#
+#   Then (inside the container) rebuild the index + datasheets:
 $PY scripts/build_master_index.py --config $CFG --out $DS/master_metadata.csv \
     --reconcile $DS/defake_predictions_all.csv
 $PY scripts/make_datasheets.py --metadata $DS/master_metadata.csv --out results/datasheets.md

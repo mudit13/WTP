@@ -86,12 +86,25 @@ def generate(args, logger):
 def score(args, logger):
     clean = pd.read_csv(args.clean)
     pert = pd.read_csv(args.perturbed)
-    # Perturbed rows carry source_path pointing back to the clean image's full_path.
+    # Perturbed rows must carry source_path (the ORIGINAL image's full_path) so the clean<->pert
+    # join can align. run_defake_batch propagates it, but the DCT (features->SVM) and attribution
+    # per-image CSVs are keyed only by the perturbed full_path. Recover source_path for those from
+    # the perturbation index (full_path -> source_path) instead of failing.
+    if "source_path" not in pert.columns and args.source_index and os.path.exists(args.source_index):
+        idx = pd.read_csv(args.source_index)
+        if "source_path" in idx.columns and schema.PATH in idx.columns:
+            m = dict(zip(idx[schema.PATH].astype(str), idx["source_path"].astype(str)))
+            pert["source_path"] = pert[schema.PATH].astype(str).map(m)
+            logger.info("Recovered source_path for %d/%d perturbed rows from %s",
+                        int(pert["source_path"].notna().sum()), len(pert), args.source_index)
     key = "source_path" if "source_path" in pert.columns else schema.PATH
     merged = clean.merge(pert, left_on=schema.PATH, right_on=key,
                          suffixes=("_clean", "_pert"))
     if merged.empty:
-        raise SystemExit("No aligned rows; check that perturbed predictions carry source_path.")
+        raise SystemExit(
+            "No aligned rows between %s and %s (join key '%s'). If the perturbed CSV lacks "
+            "source_path, pass --source_index <perturbation index CSV> so it can be recovered."
+            % (args.clean, args.perturbed, key))
 
     pc = args.pred_col + "_clean"
     pp = args.pred_col + "_pert"
@@ -145,6 +158,10 @@ if __name__ == "__main__":
     # score
     parser.add_argument("--clean")
     parser.add_argument("--perturbed")
+    parser.add_argument("--source_index", default=None,
+                        help="Perturbation index CSV (full_path -> source_path); used to recover "
+                             "source_path when the perturbed predictions do not carry it "
+                             "(DCT/attribution per-image CSVs).")
     parser.add_argument("--pred_col", default="defake_predict")
     parser.add_argument("--conf_col", default="prob_fake")
     parser.add_argument("--out")

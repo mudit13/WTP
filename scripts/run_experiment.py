@@ -224,6 +224,7 @@ def stage_robustness(c):
         steps.append(_step(f"[{name}] DCT score", [c.py, c.s("robustness_perturb.py"), "--mode",
                      "score", "--clean", f"{rd}/dct_clean/dct_per_image.csv",
                      "--perturbed", f"{rd}/dct_{name}/dct_per_image.csv",
+                     "--source_index", pidx,
                      "--pred_col", "pred", "--conf_col", "score",
                      "--out", f"{rd}/dct_{name}_drop.json"]))
         # Attribution (which-generator flips)
@@ -233,7 +234,8 @@ def stage_robustness(c):
                      "--out", f"{rd}/attr_{name}.csv"]))
         steps.append(_step(f"[{name}] Attribution score", [c.py, c.s("robustness_perturb.py"),
                      "--mode", "score", "--clean", f"{rd}/attr_clean.csv",
-                     "--perturbed", f"{rd}/attr_{name}.csv", "--pred_col", "pred_generator",
+                     "--perturbed", f"{rd}/attr_{name}.csv", "--source_index", pidx,
+                     "--pred_col", "pred_generator",
                      "--conf_col", "confidence", "--out", f"{rd}/attr_{name}_drop.json"]))
     return steps
 

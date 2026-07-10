@@ -133,7 +133,23 @@ def main(args):
     else:
         if not (args.index and args.config):
             raise SystemExit("--index and --config required for finetune mode")
-        df = _finetune_splits(args.index, io_utils.load_config(args.config))
+        # --group_map matters here for the SAME reason documented in
+        # audit_split_leakage.py._finetune_splits: this script often has to run on the HOST
+        # (e.g. to reach /vol1), where config-driven auto-detection of the sidecar path
+        # (built from the container-absolute config["dataset_root"]) silently finds nothing and
+        # falls back to an ungrouped split reconstruction - making straddling counts look far
+        # worse than what the real (in-container) training run actually did. Always pass the
+        # real host-relative sidecar path via --group_map when running outside the container.
+        if not args.group_map:
+            logger.warning(
+                "--group_map not given: the split reconstruction below auto-detects the "
+                "sidecar from config['dataset_root'], which is a CONTAINER-absolute path and "
+                "will silently resolve to nothing if this script is running on the host (or any "
+                "machine other than the container) - producing an UNGROUPED reconstruction and "
+                "an unreliable straddle count. Pass --group_map <path to "
+                "openforensics_groups.csv> explicitly to get a trustworthy result outside the "
+                "container.")
+        df = _finetune_splits(args.index, io_utils.load_config(args.config), args.group_map)
 
     of_mask = df[schema.GENERATOR].astype(str).isin(OF_GENERATORS)
     of_df = df[of_mask].copy()
@@ -268,6 +284,12 @@ if __name__ == "__main__":
     parser.add_argument("--index", default=None, help="Index CSV for finetune-split reconstruction")
     parser.add_argument("--train_index", default=None)
     parser.add_argument("--test_index", default=None)
+    parser.add_argument("--group_map", nargs="*", default=None,
+                        help="Explicit path(s) to full_path,source_image_id sidecar CSV(s) for "
+                             "the split reconstruction, overriding config-driven auto-detection. "
+                             "Strongly recommended (see warning if omitted) when running this "
+                             "script outside the container, e.g. dataset/openforensics/"
+                             "openforensics_groups.csv relative to sharedDockerDir on the host.")
     parser.add_argument("--max_examples", type=int, default=20,
                         help="Cap on example groups written to the output JSON.")
     parser.add_argument("--out", required=True)

@@ -13,6 +13,18 @@ Features mirror training: 1024-dim CLIP image+text when --captions_csv is given 
 fine-tune). JPEG augmentation is OFF here on purpose - for perturbed inputs the perturbation is
 already baked into the image; we must not add a second random re-compression on top.
 
+CAPTION REMAPPING FOR PERTURBED INDICES: --captions_csv is keyed by full_path, but a
+robustness_perturb.py perturbation index's full_path values point at the NEW perturbed images
+(e.g. dataset/robust/jpeg30/...), which never appear as a key in a captions CSV built from the
+ORIGINAL images. Without remapping, every perturbed row's caption lookup misses and silently
+falls back to "" (features_cache.build_features's cap_map.get(p, "")), so perturbed attribution
+robustness would be measuring "image perturbation + captions unexpectedly going empty" conflated
+together, while the clean baseline (test_index.csv, no source_path column) correctly gets real
+captions - inflating the measured label-flip-rate/confidence-drop. When the index has a
+source_path column (every perturbation index does), captions are looked up via source_path
+instead, so a perturbed image inherits its original image's real caption. Indices without
+source_path (e.g. the clean test_index.csv) are unaffected - captions_csv is used as-is.
+
 Run with the DE-FAKE interpreter (venv_sd15: CLIP + torch):
   $WTP_PY_DEFAKE scripts/predict_defake_head.py --config configs/config.yaml \
       --head results/finetune_aspect_jpegaug/defake_head.pt \
@@ -26,6 +38,42 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import io_utils, metrics, features_cache, defake_head, schema  # noqa: E402
+
+
+def _resolve_captions_csv(index_csv, captions_csv, scratch_dir, logger):
+    """If index_csv has a source_path column (a robustness_perturb.py perturbation index),
+    build a temporary captions CSV keyed by the CURRENT (perturbed) full_path, with each
+    caption looked up via that row's source_path in the ORIGINAL captions_csv - so a perturbed
+    image inherits its source image's real caption instead of silently falling back to "".
+    Returns captions_csv unchanged when there is no source_path column (e.g. the clean
+    test_index.csv) or no --captions_csv was given."""
+    if not captions_csv:
+        return captions_csv
+    import pandas as pd
+    idx_df = pd.read_csv(index_csv)
+    if "source_path" not in idx_df.columns:
+        return captions_csv
+    cap_df = pd.read_csv(captions_csv)
+    if schema.BLIP_CAPTION not in cap_df.columns or schema.PATH not in cap_df.columns:
+        logger.warning("--captions_csv %s has no %s/%s column; skipping source_path remap.",
+                       captions_csv, schema.PATH, schema.BLIP_CAPTION)
+        return captions_csv
+    cap_map = dict(zip(cap_df[schema.PATH].astype(str),
+                       cap_df[schema.BLIP_CAPTION].fillna("").astype(str)))
+    remapped = pd.DataFrame({
+        schema.PATH: idx_df[schema.PATH].astype(str),
+        schema.BLIP_CAPTION: idx_df["source_path"].astype(str).map(cap_map).fillna(""),
+    })
+    n_missing = int((remapped[schema.BLIP_CAPTION] == "").sum())
+    if n_missing:
+        logger.warning("%d/%d rows' source_path had no caption in %s (still fell back to \"\").",
+                       n_missing, len(remapped), captions_csv)
+    io_utils.ensure_dir(scratch_dir)
+    tmp_path = os.path.join(scratch_dir, "_captions_remapped_via_source_path.csv")
+    remapped.to_csv(tmp_path, index=False)
+    logger.info("Remapped captions via source_path -> %s (%d/%d rows matched)",
+               tmp_path, len(remapped) - n_missing, len(remapped))
+    return tmp_path
 
 
 def _load_head(head_path, device):
@@ -51,10 +99,14 @@ def main(args):
     head, classes = _load_head(args.head, args.device)
     logger.info("Loaded head: %d classes %s", len(classes), classes)
 
+    captions_csv = _resolve_captions_csv(
+        args.index, args.captions_csv,
+        os.path.dirname(os.path.abspath(args.out)) or ".", logger)
+
     # jpeg_aug=False: never re-augment at inference (esp. for already-perturbed robustness inputs).
     X, generator, label, paths = features_cache.build_features(
         args.index, args.features_cache, device=args.device, force=args.recompute_features,
-        captions_csv=args.captions_csv, jpeg_aug=False, seed=seed)
+        captions_csv=captions_csv, jpeg_aug=False, seed=seed)
     logger.info("Features: %s over %d images", X.shape, len(X))
 
     proba = head.predict_proba(X)

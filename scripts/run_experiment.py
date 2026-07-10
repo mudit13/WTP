@@ -217,7 +217,7 @@ def stage_ganfp(c):
         bench_cmd.append("--jpeg_aug")
     return [
         _step("GAN-fp features + MLP (path A)", [c.py, c.s("train_ganfp.py"), "--config", c.cfg,
-              "--index", c.index, "--jpeg_aug", c.jpeg_aug,
+              "--index", c.index, "--jpeg_aug", c.jpeg_aug, "--device", c.device,
               "--features_cache", f"{c.results}/ganfp_feats_{c.variant}.npz",
               "--out_dir", f"{c.results}/ganfp_feature_{c.variant}/"]),
         _step("GAN-fp CNN (path B)", [c.py, c.s("train_ganfp_cnn.py"), "--config", c.cfg,

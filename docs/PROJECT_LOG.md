@@ -724,3 +724,53 @@ colliding `id=5` annotations both survive, keyed separately). Full suite now 64 
 that was never actually exercised with more than one file had a latent correctness bug exactly
 where COCO id semantics are least intuitive. Worth fixing regardless of whether OpenForensics
 extraction ends up Val-only (the current plan) or eventually needs more splits.
+
+## 20. Two more findings during the actual server run: caption remapping + missing --device
+
+**What:** A colleague, watching the run's `--dry_run` plan (section 15-18 territory), caught two
+more real issues:
+
+- **Attribution robustness captions silently go empty for every perturbed image.**
+  `predict_defake_head.py` (used by `stage_robustness`'s "Attribution predict" steps) passes
+  `--index` (a robustness_perturb.py perturbation index, e.g. `index_jpeg30.csv`) straight to
+  `features_cache.build_features`, which looks up each row's caption from `--captions_csv` KEYED
+  BY THE INDEX'S OWN `full_path`. A perturbation index's `full_path` values point at the NEW
+  perturbed images (`dataset/robust/jpeg30/...`), which never appear as a key in a captions CSV
+  built from the ORIGINAL images - every perturbed row's caption lookup missed and silently fell
+  back to `""` (`cap_map.get(p, "")`), which then gets encoded through CLIP text and mixed into
+  the 1024-dim feature. The CLEAN baseline (`test_index.csv`, no perturbation, real paths)
+  correctly got real captions. Net effect: the measured attribution label-flip-rate and
+  confidence-drop under perturbation were conflating the actual image perturbation with a
+  caption-mismatch artifact that the clean baseline never had - likely inflating both. Does NOT
+  affect DE-FAKE detection robustness (`run_defake_batch.py` runs BLIP live on each image, no
+  external caption CSV) or DCT robustness (image-only features) - isolated to attribution
+  robustness only. Fixed: `predict_defake_head.py` gained `_resolve_captions_csv()`, which checks
+  for a `source_path` column (present on every perturbation index, absent on `test_index.csv`)
+  and, when present, builds a temporary captions CSV keyed by the CURRENT full_path but with each
+  caption looked up via `source_path` in the original captions CSV - so a perturbed image
+  inherits its source image's real caption. Indices without `source_path` are passed through
+  unchanged (zero behavior change for the clean baseline). Added
+  `tests/test_predict_defake_head.py` (remap case, no-source_path passthrough case, None
+  passthrough case).
+- **`stage_ganfp`'s Path A step (`train_ganfp.py`) never got `--device`.** Its default is `"cpu"`
+  (unlike `train_ganfp_cnn.py`/`benchmark_attribution.py`, which sections 15/18 already fixed to
+  receive `--device`) - Path A's small MLP head would have silently trained on CPU instead of the
+  requested `cuda`. Not a correctness bug (a tiny MLP trains to the same result either way, just
+  slower) but an inconsistency worth closing. Fixed: `--device`, `c.device` added to that step.
+
+Both verified via `--dry_run` after the fix (Path A's command now shows `--device cuda`) and the
+full test suite (67 passed, 8 skipped).
+
+**Note on the run already in progress:** because `run_experiment.py` shells out to a FRESH
+subprocess per step (reading the script file from disk at the moment that step starts, not
+pre-loaded at launch), any step not yet reached when this fix lands will pick it up
+automatically - but which steps that covers depends on timing we can't verify remotely. Safest
+plan: after the main run finishes, unconditionally re-run just the "Attribution predict" +
+"Attribution score" steps for all 8 perturbations (cheap relative to the full run) rather than
+trust a timing guess, so the attribution-robustness numbers are correct regardless of when the
+fix actually landed relative to the run.
+
+**Why:** Both were real, verified in the exact code path (not just plausible) before being
+called confirmed. The caption bug specifically would have inflated exactly the kind of number
+(attribution robustness under perturbation) this project's whole rigor push has been about
+getting right - worth catching before it ships in the report.

@@ -76,3 +76,53 @@ def test_default_group_map_paths_uses_dataset_root():
     paths = io_utils.default_group_map_paths({"dataset_root": "/x/dataset"})
     assert paths == [os.path.join("/x/dataset", "openforensics", "openforensics_groups.csv")]
     assert io_utils.default_group_map_paths({}) == []
+
+
+class _RecordingLogger:
+    def __init__(self):
+        self.warnings = []
+
+    def warning(self, msg, *args, **kwargs):
+        self.warnings.append(msg % args if args else msg)
+
+    def info(self, *args, **kwargs):
+        pass
+
+
+def test_apply_group_map_exact_match_no_warning():
+    """Regression: when full_path values in the group map and the query paths use the SAME
+    prefix, matching works and no mismatch warning should fire."""
+    group_map = {"/pitsec_sose26_topic8/dataset/openforensics/real/a.jpg": "Val:1"}
+    log = _RecordingLogger()
+    groups = io_utils.apply_group_map(
+        ["/pitsec_sose26_topic8/dataset/openforensics/real/a.jpg"], group_map, logger=log)
+    assert list(groups) == ["Val:1"]
+    assert log.warnings == []
+
+
+def test_apply_group_map_prefix_mismatch_warns_but_does_not_fix():
+    """Regression for the real bug found on the server: extract_openforensics.py recorded the
+    sidecar's full_path with a HOST prefix (/vol2/.../sharedDockerDir/...), while
+    build_master_index.py (run inside the container) builds full_path with a CONTAINER prefix
+    (/pitsec_sose26_topic8/...) for the SAME physical file - apply_group_map must still fail to
+    match (no silent basename-based fix, which would risk false matches elsewhere) but MUST
+    loudly warn that a same-filename, different-prefix near-miss occurred."""
+    group_map = {
+        "/vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics/real/a.jpg": "Val:1",
+    }
+    query_paths = ["/pitsec_sose26_topic8/dataset/openforensics/real/a.jpg"]
+    log = _RecordingLogger()
+    groups = io_utils.apply_group_map(query_paths, group_map, logger=log)
+
+    # No silent fix: falls back to the query path itself (singleton), same as any other miss.
+    assert list(groups) == query_paths
+    # But it MUST have warned loudly about the near-miss.
+    assert len(log.warnings) == 1
+    assert "PREFIX MISMATCH" in log.warnings[0]
+
+
+def test_apply_group_map_no_logger_is_silent_and_safe():
+    """Passing no logger (the default) must not raise, even with a prefix mismatch present."""
+    group_map = {"/vol2/host/path/a.jpg": "Val:1"}
+    groups = io_utils.apply_group_map(["/container/path/a.jpg"], group_map)
+    assert list(groups) == ["/container/path/a.jpg"]

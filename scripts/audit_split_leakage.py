@@ -62,7 +62,7 @@ def _hamming(a, b):
     return bin(a ^ b).count("1")
 
 
-def _finetune_splits(index_csv, config, group_map_paths=None):
+def _finetune_splits(index_csv, config, group_map_paths=None, logger=None):
     """Reconstruct the in-set train/val/test split as finetune_defake_head.py does; out-of-set
     generators are tagged `unseen`. Returns a DataFrame with a `split` column.
 
@@ -100,7 +100,7 @@ def _finetune_splits(index_csv, config, group_map_paths=None):
     # miss one it didn't). Uses --group_map when given; otherwise auto-detects (see the
     # docstring above for why auto-detection is unreliable across host/container boundaries).
     group_map = io_utils.load_group_map(group_map_paths or io_utils.default_group_map_paths(config))
-    groups = io_utils.apply_group_map(pi, group_map) if group_map else None
+    groups = io_utils.apply_group_map(pi, group_map, logger=logger) if group_map else None
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
         val_size=config.get("val_size", 0.1), seed=int(config.get("seed", 42)), keys=pi,
@@ -134,7 +134,7 @@ def main(args):
     else:
         if not (args.index and args.config):
             raise SystemExit("--index and --config required for finetune mode")
-        df = _finetune_splits(args.index, io_utils.load_config(args.config), args.group_map)
+        df = _finetune_splits(args.index, io_utils.load_config(args.config), args.group_map, logger)
 
     # Group-straddle check: with the group-aware split fix, no group (e.g. an OpenForensics
     # source_image_id shared by a real+fake crop pair) should ever have members on more than
@@ -147,7 +147,7 @@ def main(args):
         if group_map:
             gdf = df.copy()
             gdf["_group"] = io_utils.apply_group_map(
-                gdf[schema.PATH].astype(str).to_numpy(), group_map)
+                gdf[schema.PATH].astype(str).to_numpy(), group_map, logger=logger)
             multi = gdf.groupby("_group").filter(lambda g: len(g) > 1)
             group_straddle["n_groups_checked"] = int(multi["_group"].nunique())
             for gid, grp in multi.groupby("_group"):

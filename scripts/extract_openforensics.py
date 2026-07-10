@@ -32,12 +32,26 @@ RUN ON THE HOST: the OpenForensics source under /vol1 is not mounted inside the 
 Point --out_dir at the host path that the CONTAINER sees as ${WTP_ROOT}/dataset/openforensics
 (so the crops land where build_master_index.py, run inside the container, will look).
 
+HOST/CONTAINER PATH MISMATCH (record full_path as the CONTAINER would see it, not as --out_dir
+literally reads on the host): build_master_index.py runs INSIDE THE CONTAINER, so every
+full_path it writes into master_metadata.csv (and everything derived from it) uses the
+CONTAINER-side prefix (e.g. /pitsec_sose26_topic8/dataset/openforensics/...). This script runs
+on the HOST, where --out_dir is typically a DIFFERENT absolute path to the SAME bind-mounted
+directory (e.g. /vol2/<user>/sharedDockerDir/dataset/openforensics/...). If full_path is
+recorded using --out_dir's literal value, openforensics_groups.csv's full_path values will
+NEVER match master_metadata.csv's full_path values for the exact same files - group-aware
+splitting then silently does nothing (apply_group_map falls back to "no match" for every row)
+even though the sidecar loads fine and looks correct. Pass --record_prefix (the CONTAINER-side
+equivalent of --out_dir) so full_path is written in the CONTAINER's own path-namespace instead -
+files are still physically written under --out_dir; only the RECORDED strings change.
+
 OpenForensics convention: category_id 0 = real face, 1 = manipulated (fake) face.
 
 Usage (host):
   python3 scripts/extract_openforensics.py \
       --root /vol1/share/DeepFake/OpenForensics \
-      --out_dir <host path mapping to /pitsec_sose26_topic8/dataset/openforensics> \
+      --out_dir /vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics \
+      --record_prefix /pitsec_sose26_topic8/dataset/openforensics \
       --splits Val --per_class_limit 300
 """
 import argparse
@@ -74,6 +88,10 @@ def main(args):
 
     root = Path(args.root)
     out_dir = Path(args.out_dir)
+    # record_root is used ONLY for the full_path strings written into the CSVs (metadata +
+    # group sidecar); out_dir remains the REAL filesystem location for mkdir/save. Defaults to
+    # out_dir (unchanged behavior) when --record_prefix is not given.
+    record_root = Path(args.record_prefix) if args.record_prefix else out_dir
     rng = random.Random(args.seed)
 
     # 1) Gather candidate annotations across the requested splits (metadata only, so capping
@@ -122,13 +140,14 @@ def main(args):
                     skipped += 1
                     continue
                 out_filename = "openforensics_%s_%s.jpg" % (split, ann["id"])
-                dst = out_dir / label / out_filename
+                dst = out_dir / label / out_filename           # REAL filesystem path (host)
+                record_dst = record_root / label / out_filename  # path recorded in the CSVs
                 crop.save(dst, "JPEG", quality=95)
                 source_image_id = "%s:%s" % (split, img_info["id"])  # split-qualified: image
                 # ids are only unique WITHIN one split's JSON, not across Train/Val/Test-*.
                 writer.writerow({
                     "filename": out_filename,
-                    "full_path": str(dst),
+                    "full_path": str(record_dst),
                     "label": label,
                     "generator": GENERATOR_MAP[label],
                     "category": CATEGORY_MAP[label],
@@ -139,7 +158,7 @@ def main(args):
                     "source_split": split,
                     "annotation_id": ann["id"],
                 })
-                groups_rows.append((str(dst), source_image_id))
+                groups_rows.append((str(record_dst), source_image_id))
                 counts[label] += 1
             print("  %s: wrote %d (requested cap %s)" % (label, counts[label], args.per_class_limit))
 
@@ -169,6 +188,15 @@ if __name__ == "__main__":
     parser.add_argument("--out_dir", required=True,
                         help="Host path that the container sees as "
                              "${WTP_ROOT}/dataset/openforensics (real/ + fake/ created here).")
+    parser.add_argument("--record_prefix", default=None,
+                        help="CONTAINER-side equivalent of --out_dir (e.g. "
+                             "/pitsec_sose26_topic8/dataset/openforensics), used ONLY for the "
+                             "full_path strings written into openforensics_metadata.csv and "
+                             "openforensics_groups.csv - files are still physically written "
+                             "under --out_dir. REQUIRED whenever --out_dir is a host path "
+                             "different from what build_master_index.py (run inside the "
+                             "container) will use for these same files, or group-aware "
+                             "splitting will silently match nothing (see the module docstring).")
     parser.add_argument("--splits", nargs="+", default=["Val"],
                         help="Splits to draw from (default: Val, the smallest). Add more to "
                              "reach the cap or increase diversity.")

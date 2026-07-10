@@ -774,3 +774,72 @@ fix actually landed relative to the run.
 called confirmed. The caption bug specifically would have inflated exactly the kind of number
 (attribution robustness under perturbation) this project's whole rigor push has been about
 getting right - worth catching before it ships in the report.
+
+## 21. The group-aware split fix was a silent no-op the entire first real server run
+
+**What:** After the first full `run_experiment.py` run completed, `audit_openforensics_coupling.py`
+reported **12/12 coupled OpenForensics source photos STRADDLING the split** - i.e. every single
+real/fake pair sharing a source photo landed on opposite sides. That is worse than pure chance
+would even produce (~46% expected with zero grouping, for this test_size/val_size), and directly
+contradicts sections 14/17's group-aware split fix. Passing `--group_map` explicitly (section 20's
+fix for the audit script's own path auto-detection) did NOT change the result, which ruled out
+"the audit script couldn't find the sidecar" and pointed at something deeper.
+
+**Root cause, traced through the actual code (not guessed):** `extract_openforensics.py` runs on
+the HOST (required - `/vol1` isn't mounted in the container) with `--out_dir
+/vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics`, and wrote `full_path` into
+BOTH `openforensics_metadata.csv` and the `openforensics_groups.csv` sidecar as `str(dst)` where
+`dst = out_dir / label / filename` - i.e. the HOST-absolute path
+(`/vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics/real/...`). But
+`build_master_index.py` runs INSIDE THE CONTAINER, where `dataset["dir"]` resolves
+`${WTP_ROOT}` to `/pitsec_sose26_topic8` - so `master_metadata.csv` (and everything derived from
+it: `index_aspect.csv`, every split, every feature cache) records the SAME physical files under
+the CONTAINER-absolute prefix (`/pitsec_sose26_topic8/dataset/openforensics/real/...`) instead.
+Same files, two completely different absolute-path strings. `apply_group_map`'s exact-string
+lookup therefore missed EVERY row, on EVERY split-consuming script, in the ACTUAL in-container
+training run too - not just in the host-run audit. The group-aware fix's algorithm (sections
+14/17) was correct; the data feeding it was not, at the extraction step, and no test caught this
+because every unit test used internally-consistent paths on both sides (this is fundamentally an
+integration-boundary bug between two machines, not something a same-process test can see).
+
+**Fix:**
+- `extract_openforensics.py` gained `--record_prefix`: the CONTAINER-side equivalent of
+  `--out_dir`, used ONLY for the `full_path` strings written into the CSVs (files are still
+  physically written under the real `--out_dir`). Files are written under the host path; the
+  sidecar and metadata CSV now RECORD the container path, matching what `build_master_index.py`
+  will independently reconstruct.
+- `io_utils.apply_group_map` gained an optional `logger` parameter: it still does NOT
+  basename-match (that would risk false grouping for datasets with non-unique filenames), but
+  when a path misses an exact match while a DIFFERENT-prefix/same-filename entry exists in the
+  group map, it now logs a loud `GROUP MAP PREFIX MISMATCH` warning - so this exact failure mode
+  is surfaced immediately in any future run's logs instead of silently degrading to "no
+  grouping happened, nothing looks wrong." Threaded `logger=` through every call site
+  (`finetune_defake_head.py`, `train_ganfp.py`, `train_ganfp_cnn.py`, `benchmark_attribution.py`,
+  `leave_one_generator_out.py`, `make_split.py`, `seed_sweep.py`, `ganfp_sweep.py`,
+  `audit_split_leakage.py`).
+- Added regression tests in `tests/test_io_and_config.py`: exact match (no warning), prefix
+  mismatch (still correctly falls back to ungrouped, but warns loudly), and no-logger-given
+  (silent, safe, matches the pre-fix default).
+
+**Practical remediation (server):** the EXISTING `openforensics_groups.csv` sidecar (and
+`openforensics_metadata.csv`) can be repaired in place with a plain prefix rewrite - no need to
+re-run image extraction:
+```bash
+sed -i 's|/vol2/pitsec_sose26_topic8/sharedDockerDir|/pitsec_sose26_topic8|' \
+    dataset/openforensics/openforensics_groups.csv dataset/openforensics/openforensics_metadata.csv
+```
+For any FUTURE extraction, use `--record_prefix /pitsec_sose26_topic8/dataset/openforensics`
+from the start so this never recurs. Either way, because fixing the sidecar changes WHICH SPLIT
+side each coupled OpenForensics row lands on, every stage downstream of splitting (`dct`,
+`attribution`, `oos`, `ganfp`, `robustness`) needs to be RE-RUN against the corrected sidecar for
+the group-aware guarantee to actually be reflected in reported numbers - the just-completed run's
+results should be treated as "the group-aware fix was not actually active" until that re-run
+happens and `n_real_fake_pairs_straddling_splits` / `group_straddle` both read `0`.
+
+**Why:** This is the most important finding of the whole OpenForensics-coupling workstream:
+"the code runs without error" and "the fix actually works" are different claims, and only the
+second one matters. The 12/12 number - specifically because it was WORSE than a no-grouping
+baseline would produce - was the tell that something structural (not statistical noise) was
+wrong, and tracing it to its root (rather than re-running and hoping) turned up a genuine,
+previously-undiscovered integration bug that a full re-run would otherwise have silently
+shipped.

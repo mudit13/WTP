@@ -122,12 +122,45 @@ def default_group_map_paths(config: dict):
     return [os.path.join(str(root), "openforensics", "openforensics_groups.csv")]
 
 
-def apply_group_map(paths, group_map: Dict[str, str]):
+def apply_group_map(paths, group_map: Dict[str, str], logger=None):
     """Map an array-like of full_path values to group ids via `group_map`, falling back to the
     path itself (a singleton group) for any path not present -- so calling this with an empty
-    map is a no-op that reproduces the pre-group-aware split exactly."""
+    map is a no-op that reproduces the pre-group-aware split exactly.
+
+    When `logger` is given, also checks whether any path that missed an EXACT match would have
+    matched by FILENAME ALONE against some group_map key. This does NOT change the matching
+    behavior (no basename-based fallback is applied - that would risk false matches for
+    datasets with non-unique basenames); it only surfaces, loudly, the specific failure mode
+    that made group-aware splitting a silent no-op in practice: the sidecar and the index being
+    built with DIFFERENT absolute-path prefixes for the same physical files (e.g.
+    extract_openforensics.py run on the HOST with a host --out_dir, while build_master_index.py
+    runs INSIDE THE CONTAINER and records the container-side prefix instead). If this ever logs
+    a warning, group-aware splitting is not actually doing anything for the affected paths -
+    fix the sidecar's recorded prefix (see extract_openforensics.py --record_prefix) rather than
+    silently living with the warning.
+    """
     import numpy as np
-    return np.array([group_map.get(str(p), str(p)) for p in paths], dtype=object)
+    paths = [str(p) for p in paths]
+    result = [group_map.get(p, p) for p in paths]
+    if logger is not None and group_map:
+        missed = [p for p, r in zip(paths, result) if r == p and p not in group_map]
+        if missed:
+            basename_index: Dict[str, str] = {}
+            for k in group_map:
+                basename_index.setdefault(os.path.basename(k), k)
+            near_misses = [(p, basename_index[os.path.basename(p)]) for p in missed
+                          if os.path.basename(p) in basename_index]
+            if near_misses:
+                example_p, example_k = near_misses[0]
+                logger.warning(
+                    "GROUP MAP PREFIX MISMATCH: %d/%d path(s) did not match the group map by "
+                    "full path but WOULD match by filename alone (e.g. index path %r vs sidecar "
+                    "key %r - same filename, different prefix). Group-aware splitting is doing "
+                    "NOTHING for these %d row(s) even though the sidecar loaded successfully. "
+                    "This is almost always a host-vs-container absolute-path mismatch - see "
+                    "extract_openforensics.py --record_prefix.",
+                    len(near_misses), len(paths), example_p, example_k, len(near_misses))
+    return np.array(result, dtype=object)
 
 
 def setup_logging(name: str, log_dir: Optional[str] = None) -> logging.Logger:

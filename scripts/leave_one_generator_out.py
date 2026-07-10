@@ -112,7 +112,7 @@ def main(args):
         # its best checkpoint (early stopping), matching finetune_defake_head.py. Without this,
         # best_state is never set and the head keeps the last-epoch weights (fixed-epoch training).
         train_paths = paths[train_mask]
-        train_groups = (io_utils.apply_group_map(train_paths, group_map)
+        train_groups = (io_utils.apply_group_map(train_paths, group_map, logger=logger)
                         if group_map else None)
         sub_tr, sub_va, _ = defake_head.stratified_split(
             y_train, test_size=0.0, val_size=0.1, seed=seed, keys=train_paths,

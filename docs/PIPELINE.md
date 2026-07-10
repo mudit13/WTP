@@ -320,7 +320,15 @@ $PY scripts/audit_split_leakage.py --config $CFG --index results/index_aspect.cs
 #       or wherever it was copied) rather than relying on the openforensics_groups.csv sidecar,
 #       so it also validates the sidecar itself. n_real_fake_pairs_straddling_splits should now
 #       be 0 (group-aware splitting is active); if it is NOT 0, the group-aware fix has a bug -
-#       do not report OpenForensics numbers until it is 0:
+#       do not report OpenForensics numbers until it is 0.
+#   IMPORTANT: pass --polygon_json for EVERY split the extraction actually drew from, not just
+#   Val - the command below assumes step 1b's re-extraction used --splits Val (the documented,
+#   current default). If OpenForensics crops ever came from an older/ad-hoc extraction script
+#   whose default covered more splits (Train/Test-Dev/Test-Challenge too - annotation/image ids
+#   are only unique WITHIN one split's JSON, so the script keys lookups by (split, id) and will
+#   just log+drop rows from a split you forgot to pass, not silently corrupt anything), check the
+#   crop filenames' split tag (openforensics_<Split>_<ann_id>.jpg) or openforensics_metadata.csv's
+#   source_split column and pass every distinct split's *_poly.json here too:
 $PY scripts/audit_openforensics_coupling.py \
     --polygon_json /vol1/share/DeepFake/OpenForensics/Val_poly.json \
     --config $CFG --index results/index_aspect.csv \

@@ -16,8 +16,20 @@ acquisition statistics.
 
 This script quantifies the coupling WITHOUT re-running extraction: it re-parses the ORIGINAL
 OpenForensics polygon JSON(s) (metadata only, no image decoding) to recover annotation_id ->
-image_id, matches that against the already-extracted crop filenames (the ann_id is embedded in
-the filename), and cross-references with the current train/val/test split.
+image_id PER SPLIT, matches that against the already-extracted crop filenames (both the split
+and the ann_id are embedded in the filename), and cross-references with the current
+train/val/test split.
+
+MULTI-SPLIT SAFE: pass every `<Split>_poly.json` that was actually used at extraction time, not
+just Val. If crops were produced by an ad-hoc/older extraction script whose default `--splits`
+covered Val+Train+Test-Dev+Test-Challenge (rather than this repo's `extract_openforensics.py`,
+which defaults to Val only), passing only Val_poly.json here would silently drop every
+Train/Test-Dev/Test-Challenge row as "unmatched" (logged, not silently wrong) - check the crop
+filenames' split tag (`openforensics_<Split>_<ann_id>.jpg`) or the `source_split` column in
+openforensics_metadata.csv (if produced by this repo's extractor) to know which JSON files to
+pass. Annotation/image ids are only unique WITHIN one split's JSON export, so every id is looked
+up as (split, id), never bare id, to avoid a same-numbered-but-unrelated annotation in a
+different split silently mapping to the wrong photo.
 
 Reports:
   - how many source photos contributed more than one crop to our sample
@@ -28,9 +40,18 @@ Reports:
   - a handful of concrete example groups for spot-checking
 
 Usage (needs the ORIGINAL OpenForensics polygon JSON(s), e.g. on the host where
-/vol1/share/DeepFake/OpenForensics is mounted, or a copy):
+/vol1/share/DeepFake/OpenForensics is mounted, or a copy). Single split:
   python3 scripts/audit_openforensics_coupling.py \
       --polygon_json /vol1/share/DeepFake/OpenForensics/Val_poly.json \
+      --config configs/config.yaml --index results/index_aspect.csv \
+      --out results/of_coupling_audit.json
+
+  # Multiple splits (pass every JSON the extraction actually drew from):
+  python3 scripts/audit_openforensics_coupling.py \
+      --polygon_json /vol1/share/DeepFake/OpenForensics/Val_poly.json \
+                     /vol1/share/DeepFake/OpenForensics/Train_poly.json \
+                     "/vol1/share/DeepFake/OpenForensics/Test-Dev_poly.json" \
+                     "/vol1/share/DeepFake/OpenForensics/Test-Challenge_poly.json" \
       --config configs/config.yaml --index results/index_aspect.csv \
       --out results/of_coupling_audit.json
 
@@ -55,28 +76,51 @@ import pandas as pd  # noqa: E402
 
 # Matches the filename convention written by extract_openforensics.py:
 #   openforensics_<Split>_<ann_id>.jpg
-_ANN_ID_RE = re.compile(r"openforensics_[^_]+_(\d+)\.")
+_ANN_ID_RE = re.compile(r"openforensics_([^_]+)_(\d+)\.")
+# Matches "<Split>_poly.json" -> "<Split>" (how the OpenForensics source names its JSONs).
+_JSON_SPLIT_RE = re.compile(r"^(.+)_poly\.json$")
 
 OF_GENERATORS = {"OpenForensics", "OpenForensics-fake"}
 
 
+def _split_from_json_path(path):
+    m = _JSON_SPLIT_RE.match(os.path.basename(str(path)))
+    if not m:
+        raise SystemExit(
+            "--polygon_json %r does not match the expected '<Split>_poly.json' naming "
+            "(e.g. Val_poly.json, Test-Dev_poly.json) - cannot determine which split this "
+            "file's annotation/image ids belong to." % path)
+    return m.group(1)
+
+
 def _load_ann_to_image(polygon_json_paths, logger):
-    """annotation_id -> image_id, unioned across every given polygon JSON (metadata only)."""
+    """(split, annotation_id) -> image_id, unioned across every given polygon JSON (metadata
+    only). MUST be keyed per split, not by annotation_id alone: COCO-style ids are only
+    guaranteed unique WITHIN one split's export - Val_poly.json and Train_poly.json can (and in
+    OpenForensics's case, do) reuse the same small integer ids for completely unrelated
+    annotations/images. A bare ann_id->image_id dict would let a later --polygon_json file
+    silently overwrite an earlier split's mapping on any id collision, corrupting the coupling
+    counts for whichever rows got mapped to the wrong photo. The split itself comes from the
+    JSON's OWN filename (e.g. "Val_poly.json" -> "Val"), matching extract_openforensics.py's
+    `source_split`/filename convention exactly."""
     ann_to_image = {}
     for jp in polygon_json_paths:
+        split = _split_from_json_path(jp)
         with open(jp, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         n = 0
         for ann in data.get("annotations", []):
-            ann_to_image[int(ann["id"])] = int(ann["image_id"])
+            ann_to_image[(split, int(ann["id"]))] = int(ann["image_id"])
             n += 1
-        logger.info("Parsed %s: %d annotations", jp, n)
+        logger.info("Parsed %s (split=%s): %d annotations", jp, split, n)
     return ann_to_image
 
 
-def _ann_id_from_path(path):
+def _split_and_ann_id_from_path(path):
     m = _ANN_ID_RE.search(os.path.basename(str(path)))
-    return int(m.group(1)) if m else None
+    if not m:
+        return None, None
+    return m.group(1), int(m.group(2))
 
 
 def main(args):
@@ -98,8 +142,12 @@ def main(args):
         raise SystemExit("No OpenForensics rows found in the given index/split.")
 
     ann_to_image = _load_ann_to_image(args.polygon_json, logger)
+    json_splits = sorted({s for s, _ in ann_to_image.keys()})
+    logger.info("Splits covered by --polygon_json: %s", json_splits)
 
-    of_df["ann_id"] = of_df[schema.PATH].apply(_ann_id_from_path)
+    parsed = of_df[schema.PATH].apply(_split_and_ann_id_from_path)
+    of_df["crop_split"] = [p[0] for p in parsed]
+    of_df["ann_id"] = [p[1] for p in parsed]
     n_unparsed = int(of_df["ann_id"].isna().sum())
     if n_unparsed:
         logger.warning("%d/%d OF rows did not match the expected filename pattern "
@@ -108,19 +156,34 @@ def main(args):
     of_df = of_df.dropna(subset=["ann_id"]).copy()
     of_df["ann_id"] = of_df["ann_id"].astype(int)
 
-    of_df["image_id"] = of_df["ann_id"].map(ann_to_image)
+    unknown_splits = sorted(set(of_df["crop_split"]) - set(json_splits))
+    if unknown_splits:
+        logger.warning(
+            "Crop filenames reference split(s) %s that are NOT covered by any --polygon_json "
+            "given (%s). Those rows can never match and will be dropped -- pass the matching "
+            "<Split>_poly.json file(s) too (e.g. Train_poly.json, Test-Dev_poly.json) if the "
+            "extraction actually drew from more than just Val.", unknown_splits, json_splits)
+
+    # (crop_split, ann_id) -> image_id, keyed PER SPLIT (see _load_ann_to_image) so an id that
+    # happens to collide across two different splits' JSON exports cannot map to the wrong photo.
+    of_df["image_id"] = [
+        ann_to_image.get((s, a)) for s, a in zip(of_df["crop_split"], of_df["ann_id"])
+    ]
     n_unmatched = int(of_df["image_id"].isna().sum())
     if n_unmatched:
-        logger.warning("%d/%d OF rows had an ann_id NOT found in --polygon_json (wrong/partial "
-                       "JSON set for the split(s) actually used at extraction time?); dropped.",
-                       n_unmatched, len(of_df))
+        logger.warning("%d/%d OF rows had a (split, ann_id) NOT found in --polygon_json "
+                       "(wrong/partial JSON set for the split(s) actually used at extraction "
+                       "time?); dropped.", n_unmatched, len(of_df))
     of_df = of_df.dropna(subset=["image_id"]).copy()
     of_df["image_id"] = of_df["image_id"].astype(int)
     logger.info("Matched %d/%d OF rows to a source image_id", len(of_df), int(of_mask.sum()))
 
+    # Group key format matches extract_openforensics.py's own source_image_id sidecar exactly
+    # ("<split>:<image_id>"), so results here and the sidecar agree on what counts as "one photo".
     groups = defaultdict(list)
     for _, r in of_df.iterrows():
-        groups[int(r["image_id"])].append({
+        group_key = "%s:%s" % (r["crop_split"], int(r["image_id"]))
+        groups[group_key].append({
             "path": str(r[schema.PATH]),
             "generator": str(r[schema.GENERATOR]),
             "label": str(r.get(schema.LABEL, "")),
@@ -152,8 +215,8 @@ def main(args):
 
     def _examples(d, cap):
         out = []
-        for iid, rows in list(d.items())[:cap]:
-            out.append({"image_id": iid, "crops": rows})
+        for group_key, rows in list(d.items())[:cap]:
+            out.append({"source_image_group": group_key, "crops": rows})
         return out
 
     result = {
@@ -195,8 +258,11 @@ if __name__ == "__main__":
         description="Quantify OpenForensics same-source-photo real/fake split coupling.")
     parser.add_argument("--polygon_json", nargs="+", required=True,
                         help="Path(s) to the ORIGINAL OpenForensics *_poly.json file(s) covering "
-                             "every split extract_openforensics.py was run with (e.g. Val_poly.json "
-                             "if --splits Val was used).")
+                             "EVERY split the extraction actually drew from (e.g. just "
+                             "Val_poly.json if --splits Val was used; pass Train/Test-Dev/"
+                             "Test-Challenge too if an older/ad-hoc extraction script's default "
+                             "covered more than Val). Rows whose crop filename references a "
+                             "split not covered here are logged and dropped, not silently wrong.")
     parser.add_argument("--mode", choices=["finetune", "index_files"], default="finetune")
     parser.add_argument("--config", default=None)
     parser.add_argument("--index", default=None, help="Index CSV for finetune-split reconstruction")

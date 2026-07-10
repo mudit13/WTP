@@ -383,18 +383,25 @@ scientifically reliable evaluation, not maximal accuracy.
   filtered its population first. Two regression tests added
   (`tests/test_defake_head.py::test_group_membership_is_id_based_not_call_population_based` and
   `::test_group_decision_matches_across_differently_filtered_calls`).
-  **Even deeper fix, found on the actual first server run (section 21):** the group-aware split
-  was a complete no-op end to end, because `extract_openforensics.py` (host, required for
-  `/vol1`) recorded the sidecar's `full_path` using the HOST's absolute path prefix, while
-  `build_master_index.py` (container) records the SAME physical files under the CONTAINER's
-  prefix - two different strings for one file, so the exact-match lookup never matched a single
-  row, on either the audit script OR the real training run. `extract_openforensics.py` gained
-  `--record_prefix` to record the container-equivalent path instead; `io_utils.apply_group_map`
-  now loudly warns (`GROUP MAP PREFIX MISMATCH`) whenever this exact failure mode recurs, rather
-  than silently degrading. **Every OpenForensics-inclusive number from the first full run is
-  invalid until the sidecar is repaired (or re-extracted with `--record_prefix`) and every
-  split-dependent stage is re-run** - `n_real_fake_pairs_straddling_splits` must read `0` before
-  trusting anything downstream of it.
+  **Even deeper fix, found on the actual first server run (sections 21-22):** the group-aware
+  split was a complete no-op end to end, for TWO independent, compounding reasons. (1)
+  `extract_openforensics.py` (host, required for `/vol1`) recorded the sidecar's `full_path`
+  using the HOST's absolute path prefix, while `build_master_index.py` (container) records the
+  SAME physical files under the CONTAINER's prefix - fixed via `--record_prefix`. (2) Even after
+  fixing (1), the straddle count was UNCHANGED - `prepare_variants.py` (which produces the
+  `index_aspect.csv` every stage actually trains on) rewrites `full_path` to a NEW derived
+  variant file, keeping the original extraction path only in `source_path`; the sidecar was
+  written against that original path, so a variant index's `full_path` could never match it
+  regardless of prefix. Fixed by resolving each row's group-map lookup key via `source_path`
+  first (`io_utils.apply_group_map_with_lookup`), with a verified-correct fallback to the row's
+  OWN `full_path` (not the resolved key) for genuinely ungrouped rows.
+  `io_utils.apply_group_map` also now loudly warns (`GROUP MAP PREFIX MISMATCH`) on a
+  same-filename/different-prefix near-miss, catching failure mode (1) automatically in any
+  future run; failure mode (2) produces a completely different filename (not just a different
+  prefix) so it is not caught by that check and instead required the `source_path` fix. **Every
+  OpenForensics-inclusive number from the first full run is invalid until both fixes are pulled
+  and every split-dependent stage is re-run** - `n_real_fake_pairs_straddling_splits` must read
+  `0` before trusting anything downstream of it.
 - OpenForensics wiring: reals are added as a TRAINED real class to diversify the narrow real class
   (Dennis's #1 steer), OF-fake is kept out-of-set (unseen manipulation), and the same-photo pairs
   are a strong within-dataset confound control. Consequence to state: OF reals are therefore NOT a

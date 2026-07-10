@@ -90,7 +90,11 @@ def main(args):
     # group = its own path), so this is a no-op for indices with no OpenForensics coupling.
     group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
     group_map = io_utils.load_group_map(group_map_paths, logger)
-    groups = io_utils.apply_group_map(pi, group_map, logger=logger) if group_map else None
+    # Lookup via source_path when args.index is a variant/perturbed index (its full_path points
+    # at a derived file the sidecar never knew about) - see io_utils.load_group_lookup_map.
+    lookup_map = io_utils.load_group_lookup_map(args.index)
+    groups = (io_utils.apply_group_map_with_lookup(pi, lookup_map, group_map, logger=logger)
+             if group_map else None)
     if group_map:
         logger.info("Group-aware split: %d path->group entries loaded from %s",
                     len(group_map), group_map_paths)

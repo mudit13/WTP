@@ -843,3 +843,60 @@ baseline would produce - was the tell that something structural (not statistical
 wrong, and tracing it to its root (rather than re-running and hoping) turned up a genuine,
 previously-undiscovered integration bug that a full re-run would otherwise have silently
 shipped.
+
+## 22. The real, SECOND root cause: variant indices rewrite full_path, breaking the group lookup
+
+**What:** Section 21's fix (repair the sidecar's host-vs-container path prefix) was applied and
+verified correct (`head` showed container-style paths), then re-verified on the server -
+`n_real_fake_pairs_straddling_splits` was STILL `12/12`, completely unchanged. Rather than
+re-guessing, ran one diagnostic first (as instructed): dump the actual `full_path`/`source_path`
+values from `results/index_aspect.csv` for OpenForensics rows and directly test membership
+against the (now prefix-corrected) sidecar. Result: `index full_path IN sidecar: 0/600`,
+`index source_path IN sidecar: 600/600`. Conclusive, not ambiguous.
+
+**Root cause:** `prepare_variants.py` (which produces `index_aspect.csv`/`index_scaled.csv`/
+`index_cropped.csv`) rewrites every row's `full_path` to point at a NEW derived variant file
+(`dataset/variants/aspect/openforensics_real/openforensics_Val_10035.png`), preserving the
+ORIGINAL pre-variant path only in a separate `source_path` column
+(`dataset/openforensics/real/openforensics_Val_10035.jpg`). `openforensics_groups.csv` was
+written against the ORIGINAL extraction paths (source_path's target) - so looking up a variant
+index's `full_path` directly in the group map, no matter how correct the prefix is, was
+GUARANTEED to never match. Section 21's fix was real and necessary but not sufficient; this is
+the actual, complete root cause. Notably this affects EVERY split-consuming script that runs on
+a variant index (i.e. the entire real pipeline, since `run_experiment.py` always uses
+`index_aspect.csv`), not just the audit scripts - group-aware splitting has been a complete
+no-op for the ENTIRE first server run, for this reason on top of section 21's.
+
+**Fix:** Added `io_utils.group_lookup_map_from_df` / `load_group_lookup_map` (build a
+`{full_path: lookup_key}` map preferring `source_path` over `full_path` when present) and
+`apply_group_map_with_lookup` (resolves each path's lookup key BEFORE checking the group map,
+but - critically - falls back to the row's OWN full_path, not the resolved lookup key, when
+there is no match, so `defake_head._hash_stratified_split`'s singleton/group identity check
+`groups[i] != keys[i]` stays correct for unmatched rows instead of spuriously treating every row
+as "grouped" just because source_path differs from full_path structurally). Every call site that
+previously called `apply_group_map` directly (`finetune_defake_head.py`, `train_ganfp.py`,
+`train_ganfp_cnn.py`, `benchmark_attribution.py`, `leave_one_generator_out.py`, `make_split.py`,
+`seed_sweep.py`, `ganfp_sweep.py`, `audit_split_leakage.py` x2) now goes through the lookup-aware
+version instead. Verified three ways: unit tests (`group_lookup_map_from_df` preference logic,
+`apply_group_map_with_lookup`'s correct singleton fallback), an end-to-end test reproducing the
+exact variant-index-vs-sidecar shape, and a live simulation using real file I/O with the SAME
+data shapes confirmed on the server (10 synthetic coupled pairs, all 10 correctly grouped).
+
+**Practical remediation:** no further data repair needed (the sidecar itself was already fixed
+in section 21; this fix is purely in the lookup logic) - just `git pull` and re-run the
+split-dependent stages again. Expect `n_real_fake_pairs_straddling_splits` and `group_straddle`
+to both read `0` this time.
+
+**Why:** Two independent, unrelated bugs (host/container prefix, then variant-path rewriting)
+happened to point at the same symptom (group-aware splitting doing nothing), and fixing only the
+first one left the exact same failure mode intact - which is exactly why re-verifying with a
+concrete measurement after every fix (rather than assuming "I fixed the bug I found, therefore
+the symptom is resolved") matters. This also validates the section-21 defensive warning
+(`GROUP MAP PREFIX MISMATCH`) as insufficient on its own for this failure mode - it only fires on
+a same-filename/different-prefix near-miss, which does NOT occur here (the variant file has a
+completely different filename AND directory from the original, e.g. `.png` under `variants/`
+vs `.jpg` under `openforensics/`) - so this class of mismatch is silent by that check's design.
+Something to keep in mind: `apply_group_map_with_lookup`'s own near-miss check (inherited from
+`apply_group_map`) is checked against the RESOLVED (source_path) key, so it would still catch a
+prefix-only mismatch even after this fix; it simply cannot catch "the sidecar and index disagree
+on which file is the source of truth," which is a structurally different problem.

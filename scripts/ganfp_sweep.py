@@ -73,7 +73,11 @@ def _build_split(args, config, seed, common_size, augment, hflip, real_set, logg
     paths_arr = np.asarray(paths)
     group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
     group_map = io_utils.load_group_map(group_map_paths, logger)
-    groups = io_utils.apply_group_map(paths_arr, group_map, logger=logger) if group_map else None
+    # Lookup via source_path when --index is a variant index (its full_path points at a derived
+    # file the sidecar never knew about) - see io_utils.load_group_lookup_map.
+    lookup_map = io_utils.load_group_lookup_map(args.index) if args.index else {}
+    groups = (io_utils.apply_group_map_with_lookup(paths_arr, lookup_map, group_map, logger=logger)
+             if group_map else None)
 
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),

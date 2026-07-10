@@ -94,6 +94,9 @@ def main(args):
     # pairs); see finetune_defake_head.py for details. No-op when no sidecar is found.
     group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
     group_map = io_utils.load_group_map(group_map_paths, logger)
+    # Lookup via source_path when --index is a variant/perturbed index (its full_path points at
+    # a derived file the sidecar never knew about) - see io_utils.load_group_lookup_map.
+    lookup_map = io_utils.load_group_lookup_map(args.index) if args.index else {}
 
     real_generators = set(attr.get("real_generators", []))
     per_image_rows = []
@@ -112,7 +115,8 @@ def main(args):
         # its best checkpoint (early stopping), matching finetune_defake_head.py. Without this,
         # best_state is never set and the head keeps the last-epoch weights (fixed-epoch training).
         train_paths = paths[train_mask]
-        train_groups = (io_utils.apply_group_map(train_paths, group_map, logger=logger)
+        train_groups = (io_utils.apply_group_map_with_lookup(
+                            train_paths, lookup_map, group_map, logger=logger)
                         if group_map else None)
         sub_tr, sub_va, _ = defake_head.stratified_split(
             y_train, test_size=0.0, val_size=0.1, seed=seed, keys=train_paths,

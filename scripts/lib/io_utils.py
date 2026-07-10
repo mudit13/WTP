@@ -163,6 +163,59 @@ def apply_group_map(paths, group_map: Dict[str, str], logger=None):
     return np.array(result, dtype=object)
 
 
+def group_lookup_map_from_df(df, path_col: str = "full_path",
+                             source_col: str = "source_path") -> Dict[str, str]:
+    """Return {full_path: lookup_key} from an already-loaded index DataFrame, where lookup_key
+    is `source_path` when present and non-null, else `full_path` itself.
+
+    WHY THIS EXISTS: prepare_variants.py (and robustness_perturb.py's perturbation indices)
+    rewrite every row's `full_path` to point at a NEW derived file (a resized/cropped/perturbed
+    copy), preserving the ORIGINAL pre-processing path only in a separate `source_path` column.
+    A group-aware sidecar like openforensics_groups.csv is written against the ORIGINAL
+    extraction paths (source_path's target), so looking up a variant index's `full_path`
+    directly in the group map will NEVER match, even with an otherwise perfectly correct
+    sidecar - confirmed on the server: index full_path matched the sidecar 0/600 times, while
+    index source_path matched it 600/600 times (see PROJECT_LOG.md section 22). Use this
+    together with `apply_group_map_with_lookup` instead of calling `apply_group_map` directly
+    whenever the index being split might be a variant/perturbed index rather than the original
+    extraction's own index.
+    """
+    if path_col not in df.columns:
+        return {}
+    if source_col in df.columns:
+        src = df[source_col]
+        lookup = src.where(src.notna(), df[path_col])
+    else:
+        lookup = df[path_col]
+    return dict(zip(df[path_col].astype(str), lookup.astype(str)))
+
+
+def load_group_lookup_map(index_csv: str, path_col: str = "full_path",
+                          source_col: str = "source_path") -> Dict[str, str]:
+    """Read `index_csv` and delegate to `group_lookup_map_from_df` - use this when only the
+    index's PATH is on hand (e.g. an --index CLI arg), not an already-loaded DataFrame."""
+    import pandas as pd
+    return group_lookup_map_from_df(pd.read_csv(index_csv), path_col, source_col)
+
+
+def apply_group_map_with_lookup(paths, lookup_map: Dict[str, str],
+                                group_map: Dict[str, str], logger=None):
+    """Like `apply_group_map`, but first resolves each path's GROUP-MAP LOOKUP KEY via
+    `lookup_map` (see `load_group_lookup_map`) before checking `group_map`. Falls back to the
+    row's OWN full_path (not the resolved lookup key) when there is no match, so the
+    singleton/group identity check in defake_head._hash_stratified_split (`groups[i] !=
+    keys[i]`, keyed on full_path) stays correct - only rows with an ACTUAL group_map hit get a
+    value different from their own full_path; an unmatched row is never spuriously treated as
+    "grouped" just because its resolved lookup key happened to differ from its own path.
+    """
+    import numpy as np
+    paths = [str(p) for p in paths]
+    resolved = [lookup_map.get(p, p) for p in paths]
+    mapped = apply_group_map(resolved, group_map, logger=logger)
+    return np.array([m if resolved[i] in group_map else paths[i]
+                     for i, m in enumerate(mapped)], dtype=object)
+
+
 def setup_logging(name: str, log_dir: Optional[str] = None) -> logging.Logger:
     """Configure a logger that writes to stdout and a timestamped file in logs/."""
     if log_dir is None:

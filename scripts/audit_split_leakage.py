@@ -99,8 +99,12 @@ def _finetune_splits(index_csv, config, group_map_paths=None, logger=None):
     # its group_map), or this audit would report a leak the real pipeline already closed (or
     # miss one it didn't). Uses --group_map when given; otherwise auto-detects (see the
     # docstring above for why auto-detection is unreliable across host/container boundaries).
+    # Looks up via source_path when index_csv is a variant/perturbed index (its full_path
+    # points at a derived file the sidecar never knew about - see load_group_lookup_map).
     group_map = io_utils.load_group_map(group_map_paths or io_utils.default_group_map_paths(config))
-    groups = io_utils.apply_group_map(pi, group_map, logger=logger) if group_map else None
+    lookup_map = io_utils.load_group_lookup_map(index_csv)
+    groups = (io_utils.apply_group_map_with_lookup(pi, lookup_map, group_map, logger=logger)
+             if group_map else None)
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
         val_size=config.get("val_size", 0.1), seed=int(config.get("seed", 42)), keys=pi,
@@ -146,8 +150,9 @@ def main(args):
         group_map = io_utils.load_group_map(args.group_map or io_utils.default_group_map_paths(gm_config))
         if group_map:
             gdf = df.copy()
-            gdf["_group"] = io_utils.apply_group_map(
-                gdf[schema.PATH].astype(str).to_numpy(), group_map, logger=logger)
+            lookup_map = io_utils.group_lookup_map_from_df(gdf)
+            gdf["_group"] = io_utils.apply_group_map_with_lookup(
+                gdf[schema.PATH].astype(str).to_numpy(), lookup_map, group_map, logger=logger)
             multi = gdf.groupby("_group").filter(lambda g: len(g) > 1)
             group_straddle["n_groups_checked"] = int(multi["_group"].nunique())
             for gid, grp in multi.groupby("_group"):

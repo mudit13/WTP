@@ -126,3 +126,56 @@ def test_apply_group_map_no_logger_is_silent_and_safe():
     group_map = {"/vol2/host/path/a.jpg": "Val:1"}
     groups = io_utils.apply_group_map(["/container/path/a.jpg"], group_map)
     assert list(groups) == ["/container/path/a.jpg"]
+
+
+def test_group_lookup_map_from_df_prefers_source_path():
+    """Regression for the real bug found on the server: prepare_variants.py rewrites full_path
+    to a NEW derived-variant file, keeping the ORIGINAL path only in source_path. A group-aware
+    sidecar is written against the ORIGINAL path, so the lookup map must resolve via
+    source_path, not full_path, whenever source_path is present."""
+    import pandas as pd
+    df = pd.DataFrame({
+        "full_path": ["/dataset/variants/aspect/openforensics_real/a.png",
+                     "/dataset/variants/aspect/openforensics_real/b.png"],
+        "source_path": ["/dataset/openforensics/real/a.jpg",
+                        "/dataset/openforensics/real/b.jpg"],
+    })
+    lookup = io_utils.group_lookup_map_from_df(df)
+    assert lookup["/dataset/variants/aspect/openforensics_real/a.png"] == \
+        "/dataset/openforensics/real/a.jpg"
+    assert lookup["/dataset/variants/aspect/openforensics_real/b.png"] == \
+        "/dataset/openforensics/real/b.jpg"
+
+
+def test_group_lookup_map_from_df_no_source_path_column_falls_back_to_full_path():
+    import pandas as pd
+    df = pd.DataFrame({"full_path": ["/a.jpg", "/b.jpg"]})
+    lookup = io_utils.group_lookup_map_from_df(df)
+    assert lookup == {"/a.jpg": "/a.jpg", "/b.jpg": "/b.jpg"}
+
+
+def test_apply_group_map_with_lookup_end_to_end_variant_index_scenario():
+    """End-to-end reproduction of the exact server scenario: a variant index (full_path points
+    at a derived file; source_path points at the original), matched against a sidecar keyed by
+    the ORIGINAL (source_path) path. Two coupled crops (pair via group id "Val:1") must land in
+    the SAME group despite their full_path values sharing no relationship to each other at all."""
+    lookup_map = {
+        "/dataset/variants/aspect/openforensics_real/a.png": "/dataset/openforensics/real/a.jpg",
+        "/dataset/variants/aspect/openforensics_fake/a_f.png": "/dataset/openforensics/fake/a_f.jpg",
+        "/dataset/variants/aspect/openforensics_real/b.png": "/dataset/openforensics/real/b.jpg",
+    }
+    group_map = {
+        "/dataset/openforensics/real/a.jpg": "Val:1",
+        "/dataset/openforensics/fake/a_f.jpg": "Val:1",  # same source photo as a.jpg
+        # b.jpg intentionally absent from group_map (no coupling for it)
+    }
+    variant_paths = [
+        "/dataset/variants/aspect/openforensics_real/a.png",
+        "/dataset/variants/aspect/openforensics_fake/a_f.png",
+        "/dataset/variants/aspect/openforensics_real/b.png",
+    ]
+    groups = io_utils.apply_group_map_with_lookup(variant_paths, lookup_map, group_map)
+    assert groups[0] == groups[1] == "Val:1"  # the coupled pair, correctly grouped
+    # b.png has no group_map hit -> must fall back to ITS OWN full_path (not its source_path,
+    # and not some other sentinel), so it is correctly treated as an ungrouped singleton.
+    assert groups[2] == variant_paths[2]

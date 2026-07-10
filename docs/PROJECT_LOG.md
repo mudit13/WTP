@@ -679,3 +679,48 @@ wired through every split-consuming script, with the deeper identity-based-group
 section 17). Not yet closed out: needs a host re-extraction (to actually generate the
 openforensics_groups.csv sidecar) and a full re-run of every OpenForensics-touching stage on the
 server before the fix is reflected in reported numbers.
+
+## 19. Provenance of the CURRENT (pre-fix) OpenForensics crops + a real bug in the audit script
+
+**What:** The team clarified how the OpenForensics crops currently on the server were actually
+produced: an older, ad-hoc host-side script (`extract_openforensics_faces.py`, not the version
+in this repo), used because `/vol1` isn't mounted in the container. Comparing it to this repo's
+`scripts/extract_openforensics.py` clarified two things:
+
+- It defaults to **all four splits** (`Val, Train, Test-Dev, Test-Challenge`), not Val only, and
+  has no `--per_class_limit`/seeded cap - it writes every annotation it finds, flat (no real/
+  fake subdirectories; a separate `ingest_openforensics.py` pass - already in this repo - sorts
+  the flat output + its metadata CSV into `real/`/`fake/` for `build_master_index.py`). It also
+  never recorded `image_id` either, so the same-source-photo coupling risk (section 14) was
+  present in the historical data too, for the same reason.
+- None of this changes the re-extraction PLAN already given: `dataset/openforensics/` gets wiped
+  and rebuilt from scratch with THIS repo's `scripts/extract_openforensics.py --splits Val
+  --per_class_limit 300 --seed 42` (the documented, current command), which writes real/fake
+  subdirectories itself (no `ingest_openforensics.py` step needed) and now records the
+  `source_image_id` sidecar. The old script's quirks (flat output, hardcoded `generator:
+  "OpenForensics"` for both labels in ITS OWN metadata CSV, uncapped count) are all moot once
+  that directory is wiped - none of them are read by `build_master_index.py` anyway (it derives
+  `generator`/`category` from `configs/config.yaml`'s dataset entry, never from a per-dataset
+  metadata CSV; the DFFD/CelebA-style `sample_size` cap already runs at index-build time
+  regardless of how many raw crops exist on disk).
+
+**Real bug this surfaced, fixed regardless of the above:** `scripts/audit_openforensics_coupling.py`
+(section 14) is designed to accept multiple `--polygon_json` files (`nargs="+"`), but its
+`_load_ann_to_image` keyed the annotation_id -> image_id map by a BARE annotation id, unioned
+across every file given. COCO-style annotation/image ids are only guaranteed unique WITHIN one
+split's JSON export - Val_poly.json and Train_poly.json can (and do, in OpenForensics) reuse the
+same small integer id for completely unrelated annotations. A second `--polygon_json` file could
+silently overwrite an earlier split's (correct) mapping on any id collision, corrupting the
+coupling counts for whichever rows got mapped to the wrong photo - exactly the kind of scenario
+the old multi-split-by-default script makes plausible. Fixed: every lookup is now keyed by
+`(split, id)`, with the split derived from the JSON's own filename (`<Split>_poly.json`) and from
+each crop's own filename (`openforensics_<Split>_<ann_id>.jpg`) - matching
+`extract_openforensics.py`'s `source_split`/`source_image_id` convention exactly. A crop whose
+split isn't covered by any `--polygon_json` given is now logged and dropped, never silently
+mismatched. Added `tests/test_audit_openforensics_coupling.py` (asserts two different splits'
+colliding `id=5` annotations both survive, keyed separately). Full suite now 64 passed, 8 skipped.
+
+**Why:** Good thing to check rather than assume - a script written to "support multiple splits"
+that was never actually exercised with more than one file had a latent correctness bug exactly
+where COCO id semantics are least intuitive. Worth fixing regardless of whether OpenForensics
+extraction ends up Val-only (the current plan) or eventually needs more splits.

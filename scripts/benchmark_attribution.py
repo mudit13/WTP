@@ -49,6 +49,26 @@ from lib import io_utils, metrics, defake_head, ganfp, ganfp_net, schema  # noqa
 import numpy as np  # noqa: E402
 
 
+def _defake_trained_classes(defake_csv):
+    """Best-effort lookup of the DE-FAKE head's OWN trained class list, so the comparison table
+    can show "classes trained on" instead of implying GAN-fp (12 classes) and DE-FAKE (7 classes,
+    by default: 4 real + SD1.5/FLUX/StyleGAN3) are directly comparable. Looks for a sibling
+    finetune_metrics.json (written by finetune_defake_head.py next to finetune_per_image.csv,
+    which is what --defake_csv normally points at)."""
+    if not defake_csv:
+        return None
+    candidate = os.path.join(os.path.dirname(defake_csv), "finetune_metrics.json")
+    if not os.path.exists(candidate):
+        return None
+    try:
+        with open(candidate, "r", encoding="utf-8") as fh:
+            meta = json.load(fh)
+    except Exception:  # noqa: BLE001
+        return None
+    classes = meta.get("classes") or []
+    return sorted(classes) or None
+
+
 def _extra_predictions(csv_path, test_paths):
     """Read an external per-image CSV (DE-FAKE / DCT) and return a path->pred_generator map
     restricted to the test rows. Returns (col_name, pred_list_aligned_to_test_paths) or
@@ -326,12 +346,19 @@ def main(args):
     labels_int = y.tolist()
     logger.info("Benchmarking over %d classes: %s", len(classes), classes)
 
+    # Group-aware split (same-source-photo coupling fix, e.g. OpenForensics real+fake crop
+    # pairs); see finetune_defake_head.py for details. No-op when no sidecar is found.
+    group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
+    group_map = io_utils.load_group_map(group_map_paths, logger)
+    paths_kept_arr = np.asarray(paths_kept)
+    groups = io_utils.apply_group_map(paths_kept_arr, group_map) if group_map else None
+
     # ONE seeded stratified split, shared verbatim by both paths. Keyed on full_path (same scheme
     # as finetune_defake_head.py) so the benchmark test set matches DE-FAKE's -> ingesting
     # --defake_csv predictions is apples-to-apples (no DE-FAKE train rows leak into the compare).
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
-        val_size=config.get("val_size", 0.1), seed=seed, keys=np.asarray(paths_kept))
+        val_size=config.get("val_size", 0.1), seed=seed, keys=paths_kept_arr, groups=groups)
     logger.info("Shared split: train=%d val=%d test=%d", len(tr), len(va), len(te))
 
     # --- Path A --------------------------------------------------------------------
@@ -360,13 +387,21 @@ def main(args):
     _write_per_image(args.out_dir, "per_image_path_b.csv", test_paths, classes,
                      y[te], b["pred"], b["proba"], dict(extras))
 
+    # "classes trained on" per method, so the table documents each method's OWN training
+    # regime instead of implying a like-for-like comparison. GAN-fp trains on whatever
+    # `classes` this benchmark run used (all 12 by default, or --classes if restricted);
+    # DE-FAKE's trained class list is read back from its own finetune_metrics.json when
+    # available (falls back to None -> "unknown, not derivable from --defake_csv alone").
+    defake_classes = _defake_trained_classes(args.defake_csv)
     comparison = [
         {"method": "ganfp_feature_mlp", "top1_accuracy": a["res"]["top1_accuracy"],
          "macro_f1": a["res"]["macro_f1"], "balanced_accuracy": a["res"]["balanced_accuracy"],
-         "detection_balanced_accuracy": a["det"]["balanced_accuracy"]},
+         "detection_balanced_accuracy": a["det"]["balanced_accuracy"],
+         "classes_trained_on": classes, "n_classes_trained_on": len(classes)},
         {"method": "ganfp_cnn", "top1_accuracy": b["res"]["top1_accuracy"],
          "macro_f1": b["res"]["macro_f1"], "balanced_accuracy": b["res"]["balanced_accuracy"],
-         "detection_balanced_accuracy": b["det"]["balanced_accuracy"]},
+         "detection_balanced_accuracy": b["det"]["balanced_accuracy"],
+         "classes_trained_on": classes, "n_classes_trained_on": len(classes)},
     ]
     # GAN-only headline (exclude diffusion) per method, where the slice was computable.
     for tag, src in (("ganfp_feature_mlp", a), ("ganfp_cnn", b)):
@@ -376,6 +411,7 @@ def main(args):
                 "method": tag + "__gan_only", "top1_accuracy": go["top1_accuracy"],
                 "macro_f1": go["macro_f1"], "balanced_accuracy": go["balanced_accuracy"],
                 "detection_balanced_accuracy": None,
+                "classes_trained_on": classes, "n_classes_trained_on": len(classes),
                 "note": "GAN classes + reals only; diffusion folded to diffusion_mismatch"})
     if defake_col is not None:
         # Binary detection accuracy for the external detector on the test rows.
@@ -392,7 +428,16 @@ def main(args):
         comparison.append({"method": "defake", "top1_accuracy": det_ext["accuracy"],
                            "macro_f1": det_ext["macro_f1"],
                            "balanced_accuracy": det_ext["balanced_accuracy"],
-                           "detection_balanced_accuracy": det_ext["balanced_accuracy"]})
+                           "detection_balanced_accuracy": det_ext["balanced_accuracy"],
+                           "classes_trained_on": defake_classes,
+                           "n_classes_trained_on": (len(defake_classes)
+                                                    if defake_classes else None),
+                           "note": ("DE-FAKE head trained on its OWN class list (see "
+                                    "classes_trained_on), not necessarily the same %d classes "
+                                    "GAN-fp was trained on above -- NOT apples-to-apples unless "
+                                    "classes_trained_on matches the benchmark's `classes` list "
+                                    "(pass --classes to restrict GAN-fp to DE-FAKE's classes "
+                                    "for a fair comparison)." % len(classes))})
     if dct_col is not None:
         y_true_names = [classes[i] for i in y[te]]
         dct_pred_names = [str(v) if v is not None else "" for v in dct_preds]
@@ -400,13 +445,26 @@ def main(args):
         comparison.append({"method": "dct", "top1_accuracy": res_dct["top1_accuracy"],
                            "macro_f1": res_dct["macro_f1"],
                            "balanced_accuracy": res_dct["balanced_accuracy"],
-                           "detection_balanced_accuracy": None})
+                           "detection_balanced_accuracy": None,
+                           "classes_trained_on": ["real", "fake"], "n_classes_trained_on": 2,
+                           "note": "DCT-SVM is a binary real/fake detector, not an attributor; "
+                                   "top1_accuracy here is a name-matching artifact, not a "
+                                   "meaningful attribution score."})
+
+    if defake_classes is not None and set(defake_classes) != set(classes):
+        logger.warning(
+            "NOT apples-to-apples: GAN-fp trained on %d classes %s but DE-FAKE (--defake_csv) "
+            "was trained on %d classes %s. Re-run with --classes %s to restrict GAN-fp to "
+            "DE-FAKE's class set for a fair head-to-head number.",
+            len(classes), classes, len(defake_classes), defake_classes,
+            " ".join('"%s"' % c for c in defake_classes))
 
     out = {
         "split": {"seed": seed, "test_size": config.get("test_size", 0.2),
                   "val_size": config.get("val_size", 0.1),
                   "train": len(tr), "val": len(va), "test": len(te)},
         "classes": classes,
+        "classes_trained_on": {"ganfp": classes, "defake": defake_classes},
         "path_a": {"attribution": a["res"], "detection": a["det"],
                    "slices": a["slices"],
                    "in_dim": a["in_dim"], "pca_components": pca_components,
@@ -437,6 +495,10 @@ if __name__ == "__main__":
     parser.add_argument("--features_cache", default=None, help="GAN-fp feature .npz cache path")
     parser.add_argument("--classes", nargs="*", default=None,
                         help="Restrict to these generator classes (default: all present)")
+    parser.add_argument("--group_map", nargs="*", default=None,
+                        help="Path(s) to full_path,source_image_id sidecar CSV(s) for "
+                             "group-aware splitting. Default: auto-load "
+                             "<dataset_root>/openforensics/openforensics_groups.csv if present.")
     parser.add_argument("--jpeg_aug", action="store_true",
                         help="Apply JPEG augmentation (use config.augmentation range+seed)")
     parser.add_argument("--recompute_features", action="store_true")

@@ -81,9 +81,16 @@ def _finetune_splits(index_csv, config):
     split = np.array(["unseen"] * len(df), dtype=object)
     gi, pi = generator[in_mask], paths[in_mask]
     y = defake_head.encode_labels(gi, classes)
+    # Group-aware reconstruction: MUST match finetune_defake_head.py's actual split (including
+    # its group_map), or this audit would report a leak the real pipeline already closed (or
+    # miss one it didn't). Auto-loads the same default sidecar; pass a config with a different
+    # dataset_root if that ever changes.
+    group_map = io_utils.load_group_map(io_utils.default_group_map_paths(config))
+    groups = io_utils.apply_group_map(pi, group_map) if group_map else None
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
-        val_size=config.get("val_size", 0.1), seed=int(config.get("seed", 42)), keys=pi)
+        val_size=config.get("val_size", 0.1), seed=int(config.get("seed", 42)), keys=pi,
+        groups=groups)
     in_positions = np.where(in_mask)[0]
     for local, name in [(tr, "train"), (va, "val"), (te, "test")]:
         for li in local:
@@ -111,6 +118,37 @@ def main(args):
         if not (args.index and args.config):
             raise SystemExit("--index and --config required for finetune mode")
         df = _finetune_splits(args.index, io_utils.load_config(args.config))
+
+    # Group-straddle check: with the group-aware split fix, no group (e.g. an OpenForensics
+    # source_image_id shared by a real+fake crop pair) should ever have members on more than
+    # one split side. This is a direct regression check on that fix, independent of the
+    # dHash/SHA near-duplicate checks below (which cannot see this coupling at all).
+    group_straddle = {"n_groups_checked": 0, "n_groups_straddling": 0, "examples": []}
+    if args.config:
+        gm_config = io_utils.load_config(args.config)
+        group_map = io_utils.load_group_map(io_utils.default_group_map_paths(gm_config))
+        if group_map:
+            gdf = df.copy()
+            gdf["_group"] = io_utils.apply_group_map(
+                gdf[schema.PATH].astype(str).to_numpy(), group_map)
+            multi = gdf.groupby("_group").filter(lambda g: len(g) > 1)
+            group_straddle["n_groups_checked"] = int(multi["_group"].nunique())
+            for gid, grp in multi.groupby("_group"):
+                if grp["split"].nunique() > 1:
+                    group_straddle["n_groups_straddling"] += 1
+                    if len(group_straddle["examples"]) < 20:
+                        group_straddle["examples"].append({
+                            "group": str(gid),
+                            "rows": grp[[schema.PATH, "split"]].to_dict("records"),
+                        })
+            if group_straddle["n_groups_straddling"]:
+                logger.warning("GROUP-STRADDLE: %d/%d grouped source(s) have members on "
+                               "different splits - the group-aware split fix is NOT fully "
+                               "effective for this run.", group_straddle["n_groups_straddling"],
+                               group_straddle["n_groups_checked"])
+            else:
+                logger.info("Group-straddle check: %d grouped source(s) checked, 0 straddling.",
+                           group_straddle["n_groups_checked"])
 
     rows, skipped = [], 0
     for _, r in df.iterrows():
@@ -179,6 +217,7 @@ def main(args):
         "n_images": len(rows), "n_skipped": skipped,
         "hamming_threshold": args.hamming,
         "split_totals": dict(split_totals),
+        "group_straddle": group_straddle,
         "exact_cross_split_duplicates": {"count": len(exact_cross), "groups": exact_cross},
         "near_cross_split_duplicates": {
             "count": len(near_cross), "pairs": near_cross[:args.max_pairs]},

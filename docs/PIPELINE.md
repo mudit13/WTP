@@ -47,9 +47,20 @@ $PY scripts/build_master_index.py --config $CFG --out $DS/master_metadata.csv \
 #         --root /vol1/share/DeepFake/OpenForensics \
 #         --out_dir /vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics \
 #         --splits Val --per_class_limit 300
+#   ^ RE-EXTRACT even if you already have OF crops from before: this version additionally
+#   records each crop's source photo id (source_image_id) in openforensics_metadata.csv AND a
+#   dedicated openforensics_groups.csv sidecar (full_path,source_image_id) at --out_dir. That
+#   sidecar is what makes every downstream split GROUP-AWARE (see step 5+ below): a real crop
+#   and a fake crop cropped from the SAME source photo are now kept on the SAME side of
+#   train/val/test instead of splitting purely on the crop's own full_path. This closes the
+#   same-source-photo coupling leak (see docs/PROJECT_LOG.md section 14/Open items).
 #
 #   ALTERNATIVE (if you already have FLAT crops + a label CSV from a prior extraction): sort them
-#   into real/ + fake/ instead of re-cropping:
+#   into real/ + fake/ instead of re-cropping. NOTE: ingest_openforensics.py does NOT produce
+#   the openforensics_groups.csv sidecar (it has no access to the original annotation JSON), so
+#   group-aware splitting will be a no-op (falls back to singleton groups, i.e. today's
+#   pre-fix behavior) unless you also run scripts/audit_openforensics_coupling.py's ann_id/
+#   image_id parsing logic to backfill one - prefer the PRIMARY path above.
 #     $PY scripts/ingest_openforensics.py --crops_csv <of_metadata.csv> \
 #         --crops_dir <flat crops dir> --out_root $DS/openforensics --mode symlink
 #
@@ -65,7 +76,9 @@ $PY scripts/metadata_confound_probe.py --config $CFG --metadata $DS/master_metad
     --source_filter openforensics --out_dir results/confound_probe_of/
 # After this gate passes, RE-RUN detection (step 3a) and the multi-class attribution fine-tune
 # (step 5, now 7-class: +OpenForensics real) so the OF real class is reflected in the headline
-# numbers, then the rigor add-ons in step 7b.
+# numbers, then the rigor add-ons in step 7b (which now also includes the SEPARATE same-source-
+# photo coupling audit, audit_openforensics_coupling.py -- the crop-SIZE confound gate above and
+# the same-source-PHOTO coupling audit below are two different risks; both must be checked).
 
 # 2. (WS2) Preprocessing variants -> writes index_{scaled,cropped,aspect}.csv.
 #     "aspect" = aspect-preserving (no stretch) -> use for the confound-controlled runs.
@@ -109,6 +122,14 @@ $PY scripts/score_defake_detection.py --predictions $DS/defake_predictions.csv \
 
 # 3b. (WS3) DCT linear-SVM (Frank2020) on each variant.
 #     Run BOTH: raw (shows the format/resolution confound) and --jpeg_aug (confound removed).
+#     IMPORTANT (leakage fix): --mode random used to draw its OWN internal split, stratified on
+#     the BINARY label; the robustness test set (make_split.py) is stratified on the 12-class
+#     generator column. Same seed/test_size does NOT guarantee the same partition across two
+#     different stratification columns, so without --test_index a fraction of test_index.csv's
+#     rows can leak into this SVM's training set (this is exactly what inflated the old
+#     robustness-clean baseline vs the from-scratch random-split number). ALWAYS pass
+#     --test_index for any DCT-SVM run whose test rows will later be perturbed/scored by
+#     robustness_perturb.py (i.e. any run feeding step 7b's DCT robustness table).
 $PY scripts/dct_extract_features.py --index results/index_scaled.csv \
     --out results/dct_features_scaled.npz
 $PY scripts/dct_extract_features.py --index results/index_scaled.csv \
@@ -118,6 +139,11 @@ $PY scripts/dct_svm.py --features results/dct_features_scaled.npz \
 $PY scripts/dct_svm.py --features results/dct_features_scaled.npz \
     --out_dir results/dct_svm_oos/ --mode out_of_set \
     --holdout_generators "FLUX.1-schnell" "StyleGAN3-FFHQ"
+#     ^ this is a quick manual sanity check on the SCALED variant, kept without --test_index on
+#     purpose (no robustness pipeline consumes it). run_experiment.py's `dct` stage ALWAYS adds
+#     --test_index (it runs make_split.py first, then trains with --test_index unconditionally)
+#     because its dct_svm.joblib is the SAME one the `robustness` stage reuses later - do not
+#     "simplify" run_experiment.py to match this manual snippet; they intentionally differ.
 
 # 4. (WS4) GAN Fingerprints (Yu2019-inspired) attribution -- on main.
 #    Second attribution method beside DE-FAKE, targeting the GAN-specific traces CLIP misses.
@@ -133,6 +159,14 @@ $PY scripts/train_ganfp_cnn.py --config $CFG --index results/index_aspect.csv \
     --jpeg_aug on --device cuda --out_dir results/ganfp_cnn_aspect/
 $PY scripts/benchmark_attribution.py --config $CFG --index results/index_aspect.csv \
     --out_dir results/ganfp_benchmark_aspect/ \
+    --defake_csv results/finetune_aspect_jpegaug/finetune_per_image.csv
+#    Full-12-class run above = each method's best-case under ITS OWN training regime (now
+#    labeled per-row via classes_trained_on/n_classes_trained_on in benchmark_metrics.json).
+#    For the FAIR head-to-head (same 7 classes DE-FAKE was trained on), also run:
+$PY scripts/benchmark_attribution.py --config $CFG --index results/index_aspect.csv \
+    --out_dir results/ganfp_benchmark_aspect_7class/ \
+    --classes "London-DB" "FFHQ" "CelebA" "OpenForensics" "SD1.5" "FLUX.1-schnell" \
+        "StyleGAN3-FFHQ" \
     --defake_csv results/finetune_aspect_jpegaug/finetune_per_image.csv
 
 # 5. (WS5) DE-FAKE multi-class attribution: fine-tune head + LOGO. THIS IS THE PRIORITY.
@@ -158,13 +192,19 @@ $PY scripts/finetune_defake_head.py --config $CFG --index results/index_aspect.c
 $PY scripts/eval_defake_attribution.py --config $CFG \
     --predictions results/finetune_aspect_jpegaug/finetune_per_image.csv \
     --out_dir results/attr_eval_aspect/ --pred_col pred_generator
-#   --- LOGO: the STRICT out-of-set test (retrains WITHOUT the target). Default targets are the
-#       trained fake set; override with --targets to hold out specific generators ---
+#   --- LOGO: the STRICT out-of-set test (retrains WITHOUT the target). DEFAULT targets are
+#       ONLY finetune_new_classes (FLUX.1-schnell, StyleGAN3-FFHQ) -- this is "Leave-New-Class-
+#       Out", not a full leave-one-generator-out sweep (see report/REPORT_OUTLINE.md section 8).
 $PY scripts/leave_one_generator_out.py --config $CFG --index results/index_aspect.csv \
     --jpeg_aug on --out_dir results/logo_aspect_jpegaug/ \
     --features_cache results/clip_feats_aspect_jpegaug.npz \
     --captions_csv $DS/defake_predictions_all.csv \
     --targets "FLUX.1-schnell" "StyleGAN3-FFHQ"
+#   --- Proper LOGO: hold out EVERY trained class in turn (reals included), one flag ---
+$PY scripts/leave_one_generator_out.py --config $CFG --index results/index_aspect.csv \
+    --jpeg_aug on --out_dir results/logo_full_aspect_jpegaug/ \
+    --features_cache results/clip_feats_aspect_jpegaug.npz \
+    --captions_csv $DS/defake_predictions_all.csv --all_trained_classes
 
 # 6. (WS6) Out-of-set analysis (confidence/entropy on unseen generators). finetune_per_image.csv
 #    already carries BOTH populations (in_set flag), so it alone gives the in-vs-out overlay;
@@ -180,6 +220,10 @@ $PY scripts/out_of_set_analysis.py --config $CFG --out_dir results/oos_aspect/ \
 #     perturbations (delete results/robust + $DS/robust first) rather than reusing an old run.
 #     generate writes ONLY the 8 perturbation indices (index_jpeg30.csv ... index_sharpen1.csv);
 #     there is NO index_clean.csv - the CLEAN baseline is results/test_index.csv itself.
+#     make_split.py NOW uses the SAME content-stable, group-aware split as every other stage
+#     (defake_head.stratified_split) instead of its own ad-hoc sklearn split, so test_index.csv
+#     changes composition vs. any pre-fix run - regenerate it (and everything derived from it)
+#     rather than reusing an old copy.
 $PY scripts/make_split.py --config $CFG --index results/index_aspect.csv \
     --train_out results/train_index.csv --test_out results/test_index.csv
 $PY scripts/robustness_perturb.py --mode generate --config $CFG \
@@ -200,6 +244,13 @@ done
 #   --- (b) DCT-SVM detection robustness (reuse the trained SVM from step 3b/7b) ---
 #   Predict the SAME perturbed images with the fitted model (dct_svm.py --mode predict), then
 #   score the flip/accuracy drop against the clean DCT predictions.
+#   PREREQUISITE (leakage fix): the SVM used here (results/dct_svm_aspect/dct_svm.joblib) MUST
+#   have been trained with --test_index results/test_index.csv (step 3b), otherwise this
+#   "clean" baseline is partly the SVM scoring its own training rows -- see the note in step 3b.
+$PY scripts/dct_extract_features.py --index results/index_aspect.csv \
+    --out results/dct_features_aspect.npz --jpeg_aug
+$PY scripts/dct_svm.py --features results/dct_features_aspect.npz \
+    --out_dir results/dct_svm_aspect/ --mode random --test_index results/test_index.csv
 $PY scripts/dct_extract_features.py --index results/test_index.csv \
     --out results/robust/dct_clean.npz --jpeg_aug
 $PY scripts/dct_svm.py --mode predict --model results/dct_svm_aspect/dct_svm.joblib \
@@ -248,19 +299,32 @@ $PY scripts/seed_sweep.py --config $CFG --index results/index_aspect.csv \
     --captions_csv $DS/defake_predictions_all.csv --jpeg_aug on \
     --n_seeds 10 --out results/ci/seed_sweep_aspect.json
 #   --- paired DE-FAKE vs DCT significance (McNemar + paired AUROC bootstrap). Needs DCT
-#       per-image output, so re-run the DCT SVM once (it now writes dct_per_image.csv):
-$PY scripts/dct_extract_features.py --index results/index_aspect.csv \
-    --out results/dct_features_aspect.npz --jpeg_aug
-$PY scripts/dct_svm.py --features results/dct_features_aspect.npz \
-    --out_dir results/dct_svm_aspect/ --mode random
+#       per-image output; this is the SAME dct_svm.py run already done in step 3b/7a with
+#       --test_index (do not refit without it, or dct_per_image.csv reintroduces the leak):
 $PY scripts/compare_models_significance.py \
     --defake $DS/defake_predictions_aspect.csv \
     --dct results/dct_svm_aspect/dct_per_image.csv \
     --out results/ci/defake_vs_dct_aspect.json
 #   --- split-leakage audit: exact (SHA-256) + near-duplicate (dHash) checks across the
-#       train/val/test partition, plus per-generator balance counts (DIAGNOSTIC):
+#       train/val/test partition, plus per-generator balance counts (DIAGNOSTIC). This ALSO
+#       reports group_straddle (0 expected): every finetune/train_ganfp/benchmark/LOGO/
+#       make_split run above already auto-loads openforensics_groups.csv and keeps each source
+#       photo's crops on one split side (scripts/lib/defake_head.py stratified_split groups=);
+#       group_straddle > 0 would mean that fix is not actually taking effect for this run
+#       (e.g. group_map path mismatch) - investigate immediately if so:
 $PY scripts/audit_split_leakage.py --config $CFG --index results/index_aspect.csv \
     --out results/leakage_audit.json
+#   --- OpenForensics same-source-photo coupling, independent cross-check (the dHash audit above
+#       cannot catch this coupling at all - see report/REPORT_OUTLINE.md Limitations). Re-parses
+#       the ORIGINAL Val_poly.json directly (host path under /vol1/share/DeepFake/OpenForensics,
+#       or wherever it was copied) rather than relying on the openforensics_groups.csv sidecar,
+#       so it also validates the sidecar itself. n_real_fake_pairs_straddling_splits should now
+#       be 0 (group-aware splitting is active); if it is NOT 0, the group-aware fix has a bug -
+#       do not report OpenForensics numbers until it is 0:
+$PY scripts/audit_openforensics_coupling.py \
+    --polygon_json /vol1/share/DeepFake/OpenForensics/Val_poly.json \
+    --config $CFG --index results/index_aspect.csv \
+    --out results/of_coupling_audit.json
 #   --- metadata-confound variant sweep (completeness): every normalized variant should be ~0.5.
 for idx in scaled cropped; do
   $PY scripts/metadata_confound_probe.py --config $CFG \

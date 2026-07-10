@@ -44,7 +44,10 @@ datasets:
     category: out_of_set
     dir: ${WTP_ROOT}/dataset/sd15_img2img/images
     ext: [".png"]
-    note: "Iterative-generation stress test (may not exist yet; skipped if absent)."
+    note: "Iterative-generation stress test. NOT GENERATED for this run (no images exist under
+      this dir; absent from the section 2/3 dataset table and every reported result). Entry
+      kept so the config stays self-documenting about what was scoped out vs. what would need
+      a generation run to add. build_master_index.py skips it silently since the dir is empty."
 
   - name: flux1_txt2img
     label: fake

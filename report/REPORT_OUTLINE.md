@@ -31,7 +31,9 @@ scientifically reliable evaluation, not maximal accuracy.
   across paradigms only in the limited sense the data supports (see Limitations).
 - Split integrity is audited, not assumed (audit_split_leakage.py): exact (SHA-256) + near-
   duplicate (perceptual-hash) checks across train/val/test, with attention to SD/FLUX sibling
-  seeds; per-generator balance counts per split are reported.
+  seeds; per-generator balance counts per split are reported. A second, dHash-blind audit
+  (audit_openforensics_coupling.py) specifically targets OpenForensics same-source-photo
+  real/fake coupling (see Limitations) that the perceptual-hash check cannot see.
 
 ## 4. Preprocessing Analysis (GOLD concern #2)
 - Three variants (scripts/prepare_variants.py): "scaled" (squash - DISTORTS non-square
@@ -91,6 +93,18 @@ scientifically reliable evaluation, not maximal accuracy.
 - Out-of-set generalization fails for BOTH methods: DCT-SVM on held-out generators (FLUX +
   StyleGAN3, matched 1446 set) collapses to ~chance (balanced 0.54, AUROC 0.62), mirroring the
   DE-FAKE attribution collapse - neither method transfers to unseen generators.
+- **DCT-SVM train/test-boundary fix (BLOCKING, resolved in code -- re-run needed).**
+  `dct_svm.py --mode random` used to draw its OWN internal split, stratified on the BINARY
+  real/fake label; the robustness test set (`make_split.py` -> `test_index.csv`) is stratified
+  on the 12-class GENERATOR column. Same seed + same test_size do NOT guarantee the same
+  partition when the stratification column differs, so a fraction of `test_index.csv`'s rows
+  were inside the SVM's own training set -- `robustness_perturb.py`'s "clean" DCT baseline was
+  partly measuring the SVM on (perturbed) training data. `dct_svm.py` now accepts
+  `--test_index results/test_index.csv`, which makes its train/test boundary IDENTICAL to the
+  shared split instead of re-deriving one. Every DCT number that feeds the robustness table
+  (§9) must be regenerated with this flag before being reported; the old 0.907-clean / 0.666
+  from-scratch discrepancy was exactly this leak and should disappear (both numbers should
+  converge to the SAME split-consistent baseline).
 - Threshold hygiene (score_defake_detection.py -> overall.thresholds): report threshold-free
   AUROC as the primary detection number, and the `validation_selected` operating point
   (threshold chosen on a seeded stratified val holdout, metrics on disjoint test rows) as the
@@ -126,6 +140,21 @@ scientifically reliable evaluation, not maximal accuracy.
   shared split (benchmark_attribution.py). Honestly "Yu2019-inspired", not a byte-faithful port.
   DE-FAKE multi-class remains the primary attribution method; GAN-fp targets the GAN-specific
   traces CLIP misses.
+- **Benchmark comparison is NOT apples-to-apples by default (BLOCKING, resolved -- re-run
+  needed).** GAN-fp (Path A/B) trains on all 12 classes present in the index (incl.
+  PGGAN-v1/v2, StarGAN, FaceApp, OpenForensics-fake); the DE-FAKE head trains on only its own
+  7 classes (4 reals + SD1.5/FLUX/StyleGAN3, see §7). When `benchmark_attribution.py` ingests a
+  DE-FAKE per-image CSV via `--defake_csv`, DE-FAKE structurally CANNOT output the right label
+  for the 5 classes outside its training set -- part of any GAN-fp-vs-DE-FAKE gap in the
+  comparison table is that structural disadvantage, not necessarily worse learning. Fix (both
+  landed in `benchmark_attribution.py`): (1) every comparison row now carries a
+  `classes_trained_on` / `n_classes_trained_on` field (DE-FAKE's is read back from its own
+  `finetune_metrics.json`), so the table is self-documenting instead of implying equivalence;
+  (2) re-run restricted to the SAME 7 classes for a genuinely fair number:
+  `benchmark_attribution.py --classes "London-DB" "FFHQ" "CelebA" "OpenForensics" "SD1.5"
+  "FLUX.1-schnell" "StyleGAN3-FFHQ"`. Report BOTH the full-12-class number (each method's
+  best-case under its own regime) and the matched-7-class number (the fair head-to-head) side
+  by side, labeled accordingly.
 - Results (fine-tuned head, controlled/JPEG-normalized aspect variant; 6 classes = 3 reals +
   SD1.5/FLUX/StyleGAN3). NOTE: adding OpenForensics as a 4th real class makes this a 7-class run;
   the numbers below predate that and must be regenerated after the OF re-run. In-set test top-1
@@ -137,6 +166,23 @@ scientifically reliable evaluation, not maximal accuracy.
   macro-F1 / balanced accuracy and on each per-class recall; seed_sweep.py re-splits + re-trains
   the head over 10 seeds and reports mean/std/CI (so e.g. "StyleGAN3 recall 0.82" is quoted with
   its across-seed spread, not as a single fragile point estimate).
+- **Single source of truth for Path A (GAN-fp feature+MLP) numbers (BLOCKING -- reconcile
+  before quoting either).** `train_ganfp.py` (standalone) and `benchmark_attribution.py`
+  (Path A inside the head-to-head) use the IDENTICAL split mechanism (`defake_head.
+  stratified_split`, content-stable hash on `full_path`, same config seed) and an
+  index-content-hashed feature-cache signature that refuses to silently reuse a cache built
+  from a different index/config -- so a standalone run and a benchmark run on the SAME
+  `--index`/`--classes`/`--features_cache` MUST produce the same number. A large gap (e.g. a
+  standalone top1=0.378/balAcc=0.414 vs a benchmark top1=0.756/balAcc=0.713) is not explainable
+  by hyperparameters alone at 40 epochs each; it is almost certainly a STALE standalone number
+  from an earlier, smaller run (e.g. the 200-image toy set or an index predating a class-set
+  change -- see the toy-vs-real gap already documented in `report/GANFP_REPORT.md` section 5-6,
+  which is the same class of artifact). Before quoting a standalone Path A number anywhere in
+  the report: either (a) re-run `train_ganfp.py` with the EXACT `--index`, `--classes`, and a
+  FRESH (`--recompute_features`) cache used by the current benchmark run and confirm the numbers
+  match within run-to-run variance, or (b) drop the standalone appendix number entirely and cite
+  `benchmark_metrics.json`'s `path_a` block as the only reported Path A result (simplest and
+  removes the duplicate-reporting risk going forward).
 
 ## 7. Retraining / Fine-tuning (Phase E)
 - Frozen CLIP + fine-tuned head adding FLUX/StyleGAN3 (finetune_defake_head.py), faithful
@@ -149,13 +195,30 @@ scientifically reliable evaluation, not maximal accuracy.
 - This is the project's central scientific contribution.
 - Out-of-set force-scoring (4 unseen DFFD GANs: FaceApp/PGGAN-v1/PGGAN-v2/StarGAN, n=400):
   top-1 = 0 BY CONSTRUCTION (the true class is absent from the label space; explain this so it
-  is not read as a bug). The informative signal is the forced distribution + confidence:
+  is not read as a bug). **Footnote to attach to every out-of-set top-1 cell in this section's
+  tables: "top-1 = 0.000 is definitional -- the head's output space contains no unseen class
+  label, so top-1 cannot be nonzero by construction. The meaningful metric is the false-known
+  rate below, not this cell."** The informative signal is the forced distribution + confidence:
   ~98% (393/400) of unseen-GAN images are attributed to a REAL class (CelebA/FFHQ) at mean
   confidence 0.82; false-known rate 0.96 @0.5, 0.76 @0.7, 0.44 @0.9. So unseen GAN fakes would
   largely pass as authentic. Entropy DOES separate populations (in-set 0.19 vs out-of-set 0.47),
   so an entropy/confidence rejection rule could recover some unseen fakes - only a partial fix
   (44% remain confident at 0.9).
-- LOGO (retrain WITHOUT the target) exposes a family asymmetry - THE key finding:
+- **"Leave-One-Generator-Out" naming caveat (reframed).** `leave_one_generator_out.py`'s DEFAULT
+  run only holds out FLUX.1-schnell and StyleGAN3-FFHQ - the two `finetune_new_classes`, i.e.
+  generators the regular head IS otherwise trained on. That default is more accurately
+  **"Leave-New-Class-Out (FLUX, StyleGAN3)"**, not a full leave-one-generator-out sweep: it
+  tests whether the two most-recently-added classes could be dropped and the model still
+  recognise them, which is a narrower (and more favorable-looking) claim than "the model
+  generalizes when any one of its trained classes is removed." A proper LOGO holds out EVERY
+  trained class in turn, INCLUDING a real class (e.g. CelebA), to test whether the model
+  confuses one real source with another when it's absent. `--all_trained_classes` (added to the
+  script) runs that full sweep in one command; report BOTH: the narrow FLUX/StyleGAN3 numbers
+  under the corrected heading below, and the full-sweep false-known rate averaged across all 7
+  trained classes as the actual generalization number.
+- LOGO (retrain WITHOUT the target) exposes a family asymmetry - THE key finding. Below is the
+  Leave-New-Class-Out (FLUX, StyleGAN3) result; §8b (pending the `--all_trained_classes` re-run)
+  reports the full sweep including a held-out real class:
   * Unseen DIFFUSION (FLUX held out, n=108): forced to the other diffusion model SD1.5 81.5% of
     the time; ~94% land on a FAKE class -> detection survives, misattribution is family-
     consistent (mean conf 0.79, FKR 0.85 @0.5).
@@ -166,6 +229,11 @@ scientifically reliable evaluation, not maximal accuracy.
     the JPEG normalization. (Appendix, optional: a raw-GEOMETRY LOGO on the scaled/squash index
     with JPEG-aug off isolates the remaining geometry axis - PIPELINE step 9; the qualitative
     collapse is expected to persist since in-set attribution showed geometry buys only ~1.5 pts.)
+- **§8b (pending re-run): full LOGO sweep, `--all_trained_classes`.** Holds out each of the 7
+  trained classes in turn (4 reals + SD1.5/FLUX/StyleGAN3), including at least one held-out
+  REAL class (e.g. CelebA -> does the model confuse it with London-DB/FFHQ/OpenForensics when
+  CelebA is absent from training?). Report the false-known rate averaged over all 7 targets,
+  not just the two diffusion/GAN targets above, as the headline generalization number.
 - Unifying mechanism: face GANs trained on real face datasets (StyleGAN3<-FFHQ; PGGAN/StarGAN/
   FaceApp on face data) collapse onto the real manifold, whereas diffusion generalizes within
   its family. This is consistent across THREE independent measurements: binary detection
@@ -190,6 +258,28 @@ scientifically reliable evaluation, not maximal accuracy.
   individual decisions are volatile (up to 1/3 flip under mild JPEG), which is the honest robustness
   characterization - stable-looking metric, unstable predictions.
 
+### 9.2 DCT-SVM detection robustness (re-run required before quoting)
+- Same perturbation set, scored via `dct_svm.py --mode predict` against the fitted SVM. MUST be
+  fit with `--test_index results/test_index.csv` (see §5's DCT train/test-boundary fix) so the
+  "clean" baseline here is evaluated on genuinely held-out rows, not partly on the SVM's own
+  training data. Any DCT-SVM clean/perturbed numbers generated BEFORE this fix (e.g. a clean
+  balanced accuracy far above the random-split §5 number, such as an 0.907-vs-0.666-style gap
+  between the robustness-clean number and the from-scratch random-split number) are invalid and
+  must be regenerated.
+- AUROC is now reported alongside balanced accuracy for every perturbation (`robustness_perturb.py
+  --mode score` computes `auroc_clean`/`auroc_perturbed`/`auroc_drop` whenever a numeric
+  `--conf_col` is available, e.g. the SVM's decision-function `score` column), so the
+  robustness table shows whether a perturbation degrades RANKING quality, not just the
+  balanced accuracy at a fixed operating point. **Fixed a follow-on gap in that same change:**
+  the accuracy/AUROC block was gated on a ground-truth `label_col` lookup that only recognized
+  DE-FAKE's `label` ("real"/"fake" string) column; `dct_svm.py`'s `dct_per_image.csv` has no
+  `label` column at all (only a numeric `y_true`), so `label_col` silently resolved to `None`
+  for every DCT drop JSON - which would have shipped with only `n`/`label_flip_rate` and NONE
+  of `accuracy_clean`/`accuracy_perturbed`/`performance_drop`/`auroc_*`, exactly the fields
+  §9.2's DCT rows need, while DE-FAKE's JSONs got the full block. `score()` now also recognizes
+  a `y_true`/`y_true_clean` numeric column as ground truth. Covered by
+  `tests/test_robustness_perturb.py` (one case per schema).
+
 ## 10. Limitations
 - Format/resolution confound: fakes are PNG/512, reals mix JPEG + varied sizes. Controlled by
   uniform PNG + JPEG augmentation + aspect-preserving resize; still a boundary of the work.
@@ -211,6 +301,31 @@ scientifically reliable evaluation, not maximal accuracy.
 - Small per-generator training set for fine-tuning (~22 test images/fake class). All headline
   numbers are therefore reported with 95% bootstrap CIs + a 10-seed sweep; treat point estimates
   as indicative, not precise.
+- **Statistical significance (BLOCKING, code ready, run pending).** `bootstrap_metrics.py` and
+  `compare_models_significance.py` exist and are wired into the runbook (PIPELINE.md step 7b)
+  but have not been executed. With ~20-22 test images per fake class, a single flipped
+  prediction moves a per-class recall by ~5 points, so headline deltas in §8/§9 could be within
+  sampling noise. Before presenting any cross-method comparison ("DCT-SVM beats DE-FAKE",
+  "GAN-fp CNN beats Path A", etc.) as a finding, run both scripts and quote the 95% CI /
+  McNemar p-value alongside the point estimate, not the point estimate alone.
+- **Hyperparameter search (documented, not exhaustive).** GAN-fp CNN channels ([16,32,64] vs
+  [32,64,128] vs [48,96,192]) WERE swept informally on the 1626-image set ([16,32,64] won,
+  val_top1=0.736; the larger configs overfit) -- this is a real, if informal, grid search and
+  is now stated as such rather than left as a config comment. The DE-FAKE MLP head
+  (hidden=256, dropout=0.3, lr=1e-3) and the DCT-SVM regularization (C=1.0) were NOT
+  cross-validated; both are fixed at defaults from the source papers (DE-FAKE / Frank2020).
+  Treat their reported numbers as indicative of the method, not as the best achievable
+  performance -- a supervisor should not read "DCT-SVM AUROC 0.777" as "the best a linear-SVM
+  detector can do on this data."
+- **CLIP+BLIP semantic confound (deferred, not measured).** The fine-tuned attribution head's
+  1024-dim input is 512-dim CLIP image features concatenated with 512-dim BLIP CAPTION
+  features. BLIP captions describe image CONTENT (scene, subject, composition), not generation
+  artifacts; real and AI-generated faces differ in subject matter and setting independently of
+  any forensic trace, so part of the head's signal could be "what is this a picture of" rather
+  than "what generated this." No ablation isolating visual-only CLIP (512-dim) from image+text
+  CLIP (1024-dim) has been run; it would need a feature re-extraction + head retrain, which is
+  deferred to future work given project scope. State this explicitly rather than implying the
+  1024-dim head is purely reading forensic artifacts.
 - Narrow generator spread: 7 face-centric generators (2 diffusion families + a few GAN
   architectures + one face-manipulation tool), each a single checkpoint, temporally skewed. The
   paradigm-level claims (diffusion generalizes within family; face GANs collapse onto the real
@@ -218,14 +333,75 @@ scientifically reliable evaluation, not maximal accuracy.
 - Threshold dependence: DE-FAKE's default 0.5 is miscalibrated (fake-biased) on faces; results
   are reported at a validation-selected operating point plus threshold-free AUROC, with the
   Youden's-J number labeled as a non-achievable oracle upper bound only.
-- Split leakage: audited via exact + perceptual-hash duplicate checks across splits
-  (audit_split_leakage.py); report the audit result. Note we do NOT use identity-group splitting
-  (no identity labels; reals drawn from large pools), which the audit substitutes for.
+- **Split leakage (BLOCKING, code ready, run pending).** `audit_split_leakage.py` (exact
+  SHA-256 + near-duplicate dHash checks across train/val/test, plus per-generator/per-source
+  balance counts) exists but has not been executed. Known near-duplicate risk vectors to check
+  specifically once run: CelebA (202k pool, 320 sampled, seeded -> expected low risk but
+  confirm), FFHQ vs StyleGAN3-FFHQ (StyleGAN3 was TRAINED on FFHQ, so its outputs may
+  perceptually resemble specific FFHQ training images even though they are technically distinct
+  files), and OpenForensics same-source-photo pairs (see below -- a DIFFERENT mechanism the
+  dHash check cannot catch). Run before the supervisor meeting either way: a clean result is
+  reportable as a positive finding, a dirty one is a critical finding that must be reported, not
+  a footnote. We do NOT use identity-group splitting (no identity labels; reals drawn from large
+  pools), which this audit substitutes for.
+- **OpenForensics same-source-photo coupling (RESOLVED: group-aware split, re-extraction +
+  re-run pending).** OpenForensics scene photos contain BOTH genuine and manipulated face
+  annotations; our extractor (`extract_openforensics.py`, run with `--splits Val
+  --per_class_limit 300 --seed 42` -- Val split ONLY, none of Train/Test-Dev/Test-Challenge)
+  used to crop and name each face by ANNOTATION id, dropping the source IMAGE id, so a real
+  crop and a fake crop from the SAME source photo (shared camera/lighting/JPEG history) could
+  land on opposite sides of the train/test split -- a leak the dHash near-duplicate audit
+  cannot catch, because a real face region and a fake face region from one photo are different
+  pixels under perceptual hashing even though they share acquisition statistics. This is
+  SEPARATE from the crop-size confound already measured and controlled (§4/§5, OF raw balanced
+  accuracy 0.608 -> chance after aspect normalization). Chosen fix (the scientifically cleanest
+  option, implemented in code): `extract_openforensics.py` now records each crop's source
+  `image_id` (both in `openforensics_metadata.csv` and a dedicated `openforensics_groups.csv`
+  sidecar); `scripts/lib/defake_head.py`'s `stratified_split` gained a `groups=` argument so
+  every crop sharing a source photo is kept on the SAME split side (backward-compatible: any
+  row without a group sidecar entry falls back to its own path as a singleton group, i.e.
+  splits exactly as before); every split-consuming script (`finetune_defake_head.py`,
+  `train_ganfp.py`, `benchmark_attribution.py`, `leave_one_generator_out.py`, `make_split.py`)
+  auto-loads the sidecar. `audit_split_leakage.py` now also reports `group_straddle` (expected
+  0) as a live regression check, and `audit_openforensics_coupling.py` independently re-derives
+  the coupling from the raw polygon JSON to cross-validate the sidecar. **Remaining work (needs
+  the GPU server): re-run `extract_openforensics.py` to regenerate the crops with the sidecar,
+  then rebuild the master index and every downstream stage** (docs/PIPELINE.md step 1b) --
+  every prior OpenForensics-inclusive number was computed on the OLD, non-group-aware split and
+  must be regenerated before being reported as final.
+  **Deeper fix (section 17, found by empirically comparing splits, not just inspection):** the
+  group/singleton decision was initially based on counting a group's members WITHIN the array a
+  given caller passed in, not on the group id itself. Because `finetune_defake_head.py` restricts
+  to trained classes before splitting (dropping the out-of-set `OpenForensics-fake` sibling of a
+  coupled pair), an `OpenForensics` real row could look like a singleton there but a 2-member
+  group in `make_split.py`'s unrestricted call - the two functions could (and did, verified with
+  a synthetic check) disagree on that row's split side, reopening the exact leak the group-aware
+  fix was meant to close, specifically for OpenForensics reals paired with an out-of-set fake.
+  Fixed: grouped-ness is now an identity check (`groups[i] != keys[i]`, i.e. "does this row have
+  an explicit sidecar-assigned id") rather than a co-occurrence count, so a row's bucket depends
+  only on `(group_id, seed)` and is identical across every caller regardless of how that caller
+  filtered its population first. Two regression tests added
+  (`tests/test_defake_head.py::test_group_membership_is_id_based_not_call_population_based` and
+  `::test_group_decision_matches_across_differently_filtered_calls`).
 - OpenForensics wiring: reals are added as a TRAINED real class to diversify the narrow real class
   (Dennis's #1 steer), OF-fake is kept out-of-set (unseen manipulation), and the same-photo pairs
   are a strong within-dataset confound control. Consequence to state: OF reals are therefore NOT a
   held-out real distribution (that role is given up for diversification); OF-fake remains the
   held-out unseen-fake probe. Guarded by an OF-only crop-size confound check before use.
+- **Datasheets incomplete (BLOCKING for an MSc submission).** `results/datasheets.md`
+  (`make_datasheets.py`) auto-fills count/resolution/format per dataset but every "Provenance
+  (manual)" field (generation/sensor pipeline, source resize/crop, JPEG quality, alignment
+  method, license) is still a TODO placeholder for every dataset. At minimum, fill in: the SD1.5
+  prompt set / sampler / steps used for `sd15_txt2img`, the StyleGAN3 checkpoint + truncation
+  parameter used for `stylegan3`, the FLUX.1-schnell prompt set, and license/access notes for
+  CelebA / FFHQ(DFFD) / London-DB / OpenForensics (already partly captured in `docs/PROJECT_LOG.md`
+  section 8 for DFFD -- port that into the datasheet, then fill in the rest).
+- **No SOTA baseline run (acknowledged explicitly, not just by omission).** We did not run
+  Wang2020 (CNNDetect) or Ojha2023 (UniversalFakeDetect) on our split. Be ready to say why:
+  DCT-SVM (Frank2020) and the GAN-fp CNN (Yu2019-inspired, SRM front-end per Fridrich-Kodovsky
+  2012) are our from-scratch equivalents of that same forensic/frequency family, not a
+  substitute for running the original released code -- reproducing a third-party repo's exact
+  training recipe on our data was out of scope for the time available, not an oversight.
 
 ## 11. Future Work
 - SOTA open-set methods raised at interim: LIDA (low-bit-plane attribution) and OmniDFA

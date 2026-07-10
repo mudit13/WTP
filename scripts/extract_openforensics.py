@@ -16,6 +16,18 @@ selection), so we get a size-matched OpenForensics subset (300 real + 300 fake b
 without extracting all ~150k faces. Selecting a cap also makes it fast enough to run on the
 small Val split alone.
 
+GROUP-AWARE SPLITTING (source-photo coupling fix): each OpenForensics scene photo can contain
+BOTH a genuine and a manipulated face annotation, so a real crop and a fake crop can share one
+source photo (same camera/lighting/JPEG history) - a real<->fake / train<->test bridge that the
+project's dHash near-duplicate audit cannot see (the two crops are different face regions). This
+extractor now records the source `image_id` for every crop it writes (both in
+openforensics_metadata.csv AND in a dedicated `openforensics_groups.csv` sidecar of
+`full_path,source_image_id` rows), so downstream splitting (scripts/lib/defake_head.py
+stratified_split's `groups=` argument, wired through finetune_defake_head.py / train_ganfp.py /
+benchmark_attribution.py / leave_one_generator_out.py / make_split.py / audit_split_leakage.py)
+can keep every crop from one source photo on the SAME side of the split, instead of splitting on
+the crop's own full_path alone.
+
 RUN ON THE HOST: the OpenForensics source under /vol1 is not mounted inside the container.
 Point --out_dir at the host path that the CONTAINER sees as ${WTP_ROOT}/dataset/openforensics
 (so the crops land where build_master_index.py, run inside the container, will look).
@@ -78,9 +90,11 @@ def main(args):
 
     # 2) Seeded selection per class (shuffle then cap), then crop ONLY the selected faces.
     fieldnames = ["filename", "full_path", "label", "generator",
-                  "category", "source_dataset", "width", "height"]
+                  "category", "source_dataset", "width", "height",
+                  "source_image_id", "source_split", "annotation_id"]
     counts = {"real": 0, "fake": 0}
     skipped = 0
+    groups_rows = []  # full_path,source_image_id sidecar for group-aware splitting
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / "openforensics_metadata.csv", "w", newline="") as cf:
         writer = csv.DictWriter(cf, fieldnames=fieldnames)
@@ -110,6 +124,8 @@ def main(args):
                 out_filename = "openforensics_%s_%s.jpg" % (split, ann["id"])
                 dst = out_dir / label / out_filename
                 crop.save(dst, "JPEG", quality=95)
+                source_image_id = "%s:%s" % (split, img_info["id"])  # split-qualified: image
+                # ids are only unique WITHIN one split's JSON, not across Train/Val/Test-*.
                 writer.writerow({
                     "filename": out_filename,
                     "full_path": str(dst),
@@ -119,9 +135,25 @@ def main(args):
                     "source_dataset": "openforensics",
                     "width": crop.width,
                     "height": crop.height,
+                    "source_image_id": source_image_id,
+                    "source_split": split,
+                    "annotation_id": ann["id"],
                 })
+                groups_rows.append((str(dst), source_image_id))
                 counts[label] += 1
             print("  %s: wrote %d (requested cap %s)" % (label, counts[label], args.per_class_limit))
+
+    # Group-aware split sidecar: full_path -> source_image_id. Downstream scripts (see the
+    # GROUP-AWARE SPLITTING note above) keep every crop sharing a source_image_id on the SAME
+    # side of train/val/test, closing the same-source-photo real/fake leak. Every OTHER dataset
+    # in the pipeline has no such sidecar, so its rows fall back to singleton groups (=their own
+    # full_path) and split exactly as before - this is additive, not a behavior change elsewhere.
+    with open(out_dir / "openforensics_groups.csv", "w", newline="") as gf:
+        gw = csv.writer(gf)
+        gw.writerow(["full_path", "source_image_id"])
+        gw.writerows(groups_rows)
+    print("Wrote group-aware split sidecar: %s (%d rows)"
+          % (out_dir / "openforensics_groups.csv", len(groups_rows)))
 
     print("\nDone. real=%d fake=%d skipped=%d -> %s/{real,fake}/"
           % (counts["real"], counts["fake"], skipped, out_dir))

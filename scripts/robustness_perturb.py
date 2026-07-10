@@ -29,6 +29,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import io_utils, image_ops, metrics, schema  # noqa: E402
 
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 
@@ -118,16 +119,47 @@ def score(args, logger):
                 pd.to_numeric(merged[cc], errors="coerce"),
                 pd.to_numeric(merged[cp], errors="coerce"))
 
-    # If ground truth label is present, also report accuracy drop (fake=positive).
-    label_col = schema.LABEL + "_clean" if (schema.LABEL + "_clean") in merged.columns else (
-        schema.LABEL if schema.LABEL in merged.columns else None)
+    # If ground truth label is present, also report accuracy drop (fake=positive). The DE-FAKE
+    # per-image CSVs carry schema.LABEL ("real"/"fake" strings); the DCT per-image CSVs
+    # (dct_svm.py's dct_per_image.csv) instead carry a numeric `y_true` column (1=fake) and have
+    # NO `label` column at all - without this fallback, label_col was always None for DCT, so
+    # accuracy_clean/accuracy_perturbed/performance_drop/auroc_* silently never appeared in any
+    # DCT robustness drop JSON (only n + label_flip_rate did), while DE-FAKE's got the full block.
+    if (schema.LABEL + "_clean") in merged.columns:
+        label_col, label_is_fake_flag = schema.LABEL + "_clean", False
+    elif schema.LABEL in merged.columns:
+        label_col, label_is_fake_flag = schema.LABEL, False
+    elif "y_true_clean" in merged.columns:
+        label_col, label_is_fake_flag = "y_true_clean", True
+    elif "y_true" in merged.columns:
+        label_col, label_is_fake_flag = "y_true", True
+    else:
+        label_col, label_is_fake_flag = None, False
     if label_col:
-        yt = schema.is_fake_label(merged[label_col]).astype(int)
+        yt = (pd.to_numeric(merged[label_col], errors="coerce").astype(int) if label_is_fake_flag
+              else schema.is_fake_label(merged[label_col]).astype(int))
         acc_clean = (schema.is_fake_predict(merged[pc]).astype(int) == yt).mean()
         acc_pert = (schema.is_fake_predict(merged[pp]).astype(int) == yt).mean()
         out["accuracy_clean"] = float(acc_clean)
         out["accuracy_perturbed"] = float(acc_pert)
         out["performance_drop"] = metrics.performance_drop(acc_clean, acc_pert)
+
+        # AUROC clean vs perturbed, whenever a numeric decision score/confidence is available
+        # (e.g. DCT-SVM's decision_function via --conf_col score, or DE-FAKE's prob_fake).
+        # Without this, a robustness table can only show threshold-dependent balanced accuracy,
+        # which hides whether a perturbation hurt RANKING quality vs just the operating point.
+        if args.conf_col and cc in merged.columns and cp in merged.columns:
+            from sklearn.metrics import roc_auc_score
+            y_arr = yt.to_numpy()
+            if len(np.unique(y_arr)) == 2:
+                sc_clean = pd.to_numeric(merged[cc], errors="coerce").to_numpy()
+                sc_pert = pd.to_numeric(merged[cp], errors="coerce").to_numpy()
+                try:
+                    out["auroc_clean"] = float(roc_auc_score(y_arr, sc_clean))
+                    out["auroc_perturbed"] = float(roc_auc_score(y_arr, sc_pert))
+                    out["auroc_drop"] = out["auroc_clean"] - out["auroc_perturbed"]
+                except ValueError:
+                    pass  # e.g. all-NaN scores; leave AUROC out rather than crash the run
 
     io_utils.ensure_dir(os.path.dirname(os.path.abspath(args.out)))
     with open(args.out, "w", encoding="utf-8") as fh:

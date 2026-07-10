@@ -134,40 +134,102 @@ def _hash_unit(key: str, seed: int) -> float:
 
 
 def _hash_stratified_split(y: np.ndarray, keys: np.ndarray, test_size: float,
-                           val_size: float, seed: int
+                           val_size: float, seed: int, groups: np.ndarray = None
                            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Content-stable stratified split: each sample's bucket depends only on a hash of its own
     key + seed, so adding/removing OTHER samples (e.g. a few images failing to load) never
     reshuffles the rest. Within each class, samples are ranked by hash and the lowest
     test_size fraction -> test, next val_size -> val, remainder -> train (per-class counts kept).
+
+    GROUP-AWARE (optional): `groups` is a per-sample group id (e.g. OpenForensics source
+    image_id) such that all samples sharing a group id MUST land on the same split side - the
+    same-source-photo real/fake coupling fix. Samples whose group id is unique to them
+    ("singleton" groups - every non-OpenForensics row, and any OpenForensics crop whose source
+    photo contributed only one sampled crop) are split EXACTLY as before via the per-class hash
+    ranking above (byte-identical when `groups` is None, since every key is then its own
+    singleton group). Samples in a multi-member group are assigned WHOLE-GROUP via a hash of the
+    group id against the same test_size/val_size thresholds, trading exact per-class
+    stratification (for that small coupled subset only) for a hard guarantee against splitting
+    one source photo's real and fake crops onto different sides.
+
+    IMPORTANT: "grouped" is determined by whether a row has an EXPLICIT group id different from
+    its own key (i.e. `groups[i] != keys[i]`, meaning `io_utils.apply_group_map` found a sidecar
+    entry for it) - NOT by counting how many rows of that group happen to be present in THIS
+    call's arrays. Counting co-occurrence within the call would make a row's bucket depend on
+    which OTHER rows the caller happened to include: e.g. finetune_defake_head.py restricts to
+    TRAINED classes before splitting, which removes the out-of-set sibling from an
+    OpenForensics-real/OpenForensics-fake coupled pair (OpenForensics-fake is out-of-set) - so
+    the surviving OpenForensics-real row would look like a lone singleton there but a 2-member
+    group in make_split.py's UNRESTRICTED call, and the two functions would (and did, until this
+    fix) disagree on that row's split side. Keying "grouped" off the id itself makes the decision
+    depend only on (group_id, seed), identical across every caller regardless of population
+    filtering.
     """
-    scores = np.array([_hash_unit(str(k), seed) for k in keys])
+    if groups is None:
+        groups = keys
+    groups = np.asarray([str(g) for g in groups])
+    keys = np.asarray(keys)
+    is_grouped = np.array([g != k for g, k in zip(groups, keys)])
+
     tr, va, te = [], [], []
-    for c in np.unique(y):
-        idx = np.where(y == c)[0]
-        order = idx[np.argsort(scores[idx], kind="stable")]
-        n = len(order)
-        n_test = int(round(n * test_size))
-        n_val = int(round(n * val_size))
-        te.extend(order[:n_test].tolist())
-        va.extend(order[n_test:n_test + n_val].tolist())
-        tr.extend(order[n_test + n_val:].tolist())
+
+    # Ungrouped rows: the ORIGINAL per-class hash-ranked split, scoped to ungrouped rows only
+    # (identical output to the pre-group-aware function whenever every row is ungrouped).
+    s_idx = np.where(~is_grouped)[0]
+    if s_idx.size:
+        s_y = y[s_idx]
+        for c in np.unique(s_y):
+            cls_idx = s_idx[s_y == c]
+            scores = np.array([_hash_unit(str(keys[i]), seed) for i in cls_idx])
+            order = cls_idx[np.argsort(scores, kind="stable")]
+            n = len(order)
+            n_test = int(round(n * test_size))
+            n_val = int(round(n * val_size))
+            te.extend(order[:n_test].tolist())
+            va.extend(order[n_test:n_test + n_val].tolist())
+            tr.extend(order[n_test + n_val:].tolist())
+
+    # Grouped rows (explicit sidecar-assigned id): assign the WHOLE group by a hash of the group
+    # id (not per-sample, not per-call-population), so no group can straddle train/val/test AND
+    # the decision is stable regardless of which other rows a particular caller filtered out
+    # first. Only the OpenForensics coupled subset (or any other future grouped dataset) takes
+    # this path; a row here may be the ONLY member of its group present in this call (e.g. its
+    # sibling was filtered out as out-of-set) and that is fine - the hash still only depends on
+    # the group id + seed.
+    g_idx = np.where(is_grouped)[0]
+    if g_idx.size:
+        for g in sorted(set(groups[g_idx].tolist())):
+            members = g_idx[groups[g_idx] == g]
+            score = _hash_unit("GROUP:%s" % g, seed)
+            if score < test_size:
+                te.extend(members.tolist())
+            elif score < test_size + val_size:
+                va.extend(members.tolist())
+            else:
+                tr.extend(members.tolist())
+
     return (np.array(sorted(tr), dtype=int), np.array(sorted(va), dtype=int),
             np.array(sorted(te), dtype=int))
 
 
 def stratified_split(y: np.ndarray, test_size: float, val_size: float, seed: int,
-                     keys: np.ndarray = None
+                     keys: np.ndarray = None, groups: np.ndarray = None
                      ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return train/val/test index arrays stratified by class label.
 
     If `keys` (one stable identifier per sample, e.g. full_path) is given, the split is
     content-stable via per-key hashing (recommended - reproducible regardless of row order or
     a few dropped images). Otherwise falls back to sklearn's positional stratified split.
+
+    `groups` (optional, requires `keys`): a per-sample group id; every sample sharing a group id
+    is kept on the same split side (see `_hash_stratified_split`). Pass this whenever a dataset
+    can contribute multiple correlated samples from one source (currently: OpenForensics
+    same-source-photo real/fake crops via `source_image_id`).
     """
     y = np.asarray(y)
     if keys is not None:
-        return _hash_stratified_split(y, np.asarray(keys), test_size, val_size, seed)
+        return _hash_stratified_split(y, np.asarray(keys), test_size, val_size, seed,
+                                      groups=groups)
     from sklearn.model_selection import train_test_split
     idx = np.arange(len(y))
     train_idx, test_idx = train_test_split(idx, test_size=test_size,

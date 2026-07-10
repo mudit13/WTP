@@ -27,12 +27,30 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import io_utils  # noqa: E402
+# Reuse robustness_perturb.py's OWN naming logic (not a re-typed copy of it) so a perturbation
+# added to config.yaml's robustness block (e.g. sharpen: [1.0, 2.0]) is picked up here
+# automatically instead of being silently skipped by a stale hardcoded list.
+from robustness_perturb import _perturbations as _perturbation_specs  # noqa: E402
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 
-# Perturbations must match configs/config.yaml robustness block (and PIPELINE.md step 7).
-PERTURBATIONS = ["jpeg30", "jpeg50", "jpeg70", "blur1", "blur2",
-                 "resize0.5", "resize0.75", "sharpen1"]
+
+def _perturbation_names(config_path):
+    """Perturbation names (e.g. "jpeg30") from config.yaml's `robustness:` block, via
+    robustness_perturb._perturbations - the SAME function robustness_perturb.py itself uses to
+    build the actual perturbation ops, so this can never drift out of sync with it.
+
+    Deliberately does NOT use io_utils.load_config (which resolves ${WTP_ROOT}-style
+    placeholders and requires configs/paths.env / the real env to be set up): the `robustness:`
+    block has no placeholders, and this orchestrator's OWN process should still be able to print
+    a --dry_run plan on a machine with no paths.env at all - every other Ctx field already
+    follows that same os.environ.get(..., default) pattern rather than a full config load.
+    """
+    import yaml
+    with open(config_path, "r", encoding="utf-8") as fh:
+        raw_config = yaml.safe_load(fh)
+    return [name for name, _op in _perturbation_specs(raw_config)]
+
 
 ALL_STAGES = ["index", "variants", "confound", "detect", "dct",
               "attribution", "oos", "ganfp", "robustness", "aggregate"]
@@ -73,6 +91,12 @@ class Ctx:
         self.dct_feats = f"{self.results}/dct_features_{self.variant}{dctaug}.npz"
         self.dct_svm_out = f"{self.results}/dct_svm_{self.variant}/"
         self.robust_dir = f"{self.results}/robust"
+        # Shared train/test split (content-stable, group-aware) - one location so every stage
+        # that needs it (dct, robustness) points at the SAME files instead of recomputing the
+        # path string independently (that drift is exactly how the dct/robustness leak crept in).
+        self.train_index = f"{self.results}/train_index.csv"
+        self.test_index = f"{self.results}/test_index.csv"
+        self.perturbations = _perturbation_names(self.cfg)
 
     def s(self, name):
         return os.path.join(SCRIPTS, name)
@@ -126,9 +150,17 @@ def stage_dct(c):
     if c.jpeg_aug == "on":
         extract.append("--jpeg_aug")
     return [
+        # MUST run before the "random split" SVM training below: dct_svm.py --test_index
+        # matches the SVM's train/test boundary to this file exactly (leakage fix - the
+        # robustness pipeline used to score the SVM partly on its own training rows because it
+        # drew its own internal binary-stratified split instead of reusing this one). Ordering
+        # matters here, unlike the other steps in this file.
+        _step("Make split (train/test index)", [c.py, c.s("make_split.py"), "--config", c.cfg,
+              "--index", c.index, "--train_out", c.train_index, "--test_out", c.test_index]),
         _step("DCT feature extraction", extract),
-        _step("DCT-SVM (random split)", [c.py, c.s("dct_svm.py"), "--features", c.dct_feats,
-              "--out_dir", c.dct_svm_out, "--mode", "random"]),
+        _step("DCT-SVM (random split, test_index-safe)", [c.py, c.s("dct_svm.py"),
+              "--features", c.dct_feats, "--out_dir", c.dct_svm_out, "--mode", "random",
+              "--test_index", c.test_index]),
         _step("DCT-SVM (out-of-set)", [c.py, c.s("dct_svm.py"), "--features", c.dct_feats,
               "--out_dir", f"{c.results}/dct_svm_{c.variant}_oos/", "--mode", "out_of_set",
               "--holdout_generators", "FLUX.1-schnell", "StyleGAN3-FFHQ"]),
@@ -143,11 +175,22 @@ def stage_attribution(c):
         _step("Evaluate attribution", [c.py, c.s("eval_defake_attribution.py"), "--config", c.cfg,
               "--predictions", f"{c.finetune_out}finetune_per_image.csv",
               "--out_dir", c.attr_eval_out, "--pred_col", "pred_generator"]),
-        _step("Leave-one-generator-out", [c.py, c.s("leave_one_generator_out.py"), "--config",
-              c.cfg, "--index", c.index, "--jpeg_aug", c.jpeg_aug,
+        # Leave-NEW-CLASS-out (NOT full LOGO): holds out only the two finetune_new_classes
+        # (generators the regular head IS otherwise trained on). Kept for continuity with the
+        # already-reported FLUX/StyleGAN3 diffusion-vs-GAN-collapse numbers - see
+        # report/REPORT_OUTLINE.md section 8's naming caveat.
+        _step("Leave-new-class-out (FLUX, StyleGAN3)", [c.py, c.s("leave_one_generator_out.py"),
+              "--config", c.cfg, "--index", c.index, "--jpeg_aug", c.jpeg_aug,
               "--out_dir", f"{c.results}/logo_{c.variant}_{c.augtag}/",
               "--features_cache", c.feats, "--captions_csv", c.captions,
               "--targets", "FLUX.1-schnell", "StyleGAN3-FFHQ"]),
+        # Proper LOGO: hold out EVERY trained class in turn (reals included) - the actual
+        # leave-one-generator-out sweep, report/REPORT_OUTLINE.md section 8b.
+        _step("Leave-one-generator-out (full sweep, --all_trained_classes)",
+              [c.py, c.s("leave_one_generator_out.py"), "--config", c.cfg, "--index", c.index,
+              "--jpeg_aug", c.jpeg_aug, "--out_dir", f"{c.results}/logo_full_{c.variant}_{c.augtag}/",
+              "--features_cache", c.feats, "--captions_csv", c.captions,
+              "--all_trained_classes"]),
     ]
 
 
@@ -159,6 +202,19 @@ def stage_oos(c):
 
 
 def stage_ganfp(c):
+    # benchmark_attribution.py's --jpeg_aug is a bare flag (action="store_true"), UNLIKE
+    # train_ganfp.py/train_ganfp_cnn.py's --jpeg_aug {auto,on,off} choice flag - append it
+    # conditionally rather than passing c.jpeg_aug as a value (that would fail argparse or,
+    # worse, silently take "off" as an unrecognized positional). --device also defaults to
+    # "cpu" in that script (unlike train_ganfp_cnn.py, which defaults to "cpu" too but is
+    # already passed --device above) - without it, the benchmark's Path B CNN silently trains
+    # on CPU even when --device cuda was requested for everything else in this run.
+    bench_cmd = [c.py, c.s("benchmark_attribution.py"), "--config", c.cfg, "--index", c.index,
+                 "--out_dir", f"{c.results}/ganfp_benchmark_{c.variant}/",
+                 "--defake_csv", f"{c.finetune_out}finetune_per_image.csv",
+                 "--device", c.device]
+    if c.jpeg_aug == "on":
+        bench_cmd.append("--jpeg_aug")
     return [
         _step("GAN-fp features + MLP (path A)", [c.py, c.s("train_ganfp.py"), "--config", c.cfg,
               "--index", c.index, "--jpeg_aug", c.jpeg_aug,
@@ -167,17 +223,21 @@ def stage_ganfp(c):
         _step("GAN-fp CNN (path B)", [c.py, c.s("train_ganfp_cnn.py"), "--config", c.cfg,
               "--index", c.index, "--jpeg_aug", c.jpeg_aug, "--device", c.device,
               "--out_dir", f"{c.results}/ganfp_cnn_{c.variant}/"]),
-        _step("GAN-fp benchmark vs DE-FAKE", [c.py, c.s("benchmark_attribution.py"), "--config",
-              c.cfg, "--index", c.index, "--out_dir", f"{c.results}/ganfp_benchmark_{c.variant}/",
-              "--defake_csv", f"{c.finetune_out}finetune_per_image.csv"]),
+        _step("GAN-fp benchmark vs DE-FAKE", bench_cmd),
     ]
 
 
 def stage_robustness(c):
     """Generate perturbations from the CURRENT test split, then score DE-FAKE + DCT-SVM +
     attribution on the SAME perturbed set (apples-to-apples method comparison)."""
-    train_idx = f"{c.results}/train_index.csv"
-    test_idx = f"{c.results}/test_index.csv"
+    # Same files as stage_dct's "Make split" step (see Ctx.train_index/test_index) - the
+    # DCT-SVM trained in stage_dct MUST have been trained with --test_index pointed at this
+    # SAME file, or its "clean" baseline here is not actually held out. Re-running make_split.py
+    # here too is deliberate/idempotent (deterministic seed + content-stable + group-aware
+    # hashing) so `--stages robustness` alone still works without requiring `dct` to have run
+    # first in the SAME invocation.
+    train_idx = c.train_index
+    test_idx = c.test_index
     rd = c.robust_dir
     steps = [
         _step("Make split", [c.py, c.s("make_split.py"), "--config", c.cfg, "--index", c.index,
@@ -203,7 +263,7 @@ def stage_robustness(c):
                  "--config", c.cfg, "--head", f"{c.finetune_out}defake_head.pt",
                  "--index", test_idx, "--captions_csv", c.captions, "--device", c.device,
                  "--out", f"{rd}/attr_clean.csv"]))
-    for name in PERTURBATIONS:
+    for name in c.perturbations:
         pidx = f"{rd}/index_{name}.csv"
         # DE-FAKE
         steps.append(_step(f"[{name}] DE-FAKE inference", [c.py, c.s("run_defake_batch.py")],

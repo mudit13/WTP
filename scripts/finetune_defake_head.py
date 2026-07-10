@@ -84,10 +84,21 @@ def main(args):
     Xi, gi, pi = X[in_mask], generator[in_mask], paths[in_mask]
     y = defake_head.encode_labels(gi, classes)
 
+    # Group-aware split: keep every crop sharing a source (e.g. an OpenForensics source photo's
+    # real+fake crop pair) on the SAME split side. Auto-loads openforensics_groups.csv unless
+    # --group_map overrides it; an empty map is a no-op (every row falls back to a singleton
+    # group = its own path), so this is a no-op for indices with no OpenForensics coupling.
+    group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
+    group_map = io_utils.load_group_map(group_map_paths, logger)
+    groups = io_utils.apply_group_map(pi, group_map) if group_map else None
+    if group_map:
+        logger.info("Group-aware split: %d path->group entries loaded from %s",
+                    len(group_map), group_map_paths)
+
     # Content-stable split keyed on full_path (reproducible regardless of row order / dropouts).
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
-        val_size=config.get("val_size", 0.1), seed=seed, keys=pi)
+        val_size=config.get("val_size", 0.1), seed=seed, keys=pi, groups=groups)
     logger.info("Split sizes: train=%d val=%d test=%d", len(tr), len(va), len(te))
 
     cw = defake_head.compute_class_weights(y[tr], len(classes))
@@ -161,6 +172,11 @@ if __name__ == "__main__":
     parser.add_argument("--classes", nargs="*", default=None,
                         help="Override the trained class space (default: reals + "
                              "in_set_generators + finetune_new_classes from config)")
+    parser.add_argument("--group_map", nargs="*", default=None,
+                        help="Path(s) to full_path,source_image_id sidecar CSV(s) (e.g. "
+                             "openforensics_groups.csv) for group-aware splitting. Default: "
+                             "auto-load <dataset_root>/openforensics/openforensics_groups.csv "
+                             "if present.")
     parser.add_argument("--jpeg_aug", choices=["auto", "on", "off"], default="auto",
                         help="JPEG-augment features (auto = use config.augmentation.jpeg_train)")
     parser.add_argument("--epochs", type=int, default=60)

@@ -82,13 +82,20 @@ def main(args):
     y = defake_head.encode_labels(gi, classes)
     logger.info("Class space (%d): %s | in-set rows=%d", len(classes), classes, len(y))
 
+    # Group-aware split (same-source-photo coupling fix, e.g. OpenForensics real+fake crop
+    # pairs); see finetune_defake_head.py for details. No-op when no sidecar is found. Loaded
+    # once outside the seed loop (the sidecar does not depend on the split seed).
+    group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
+    group_map = io_utils.load_group_map(group_map_paths, logger)
+    groups = io_utils.apply_group_map(pi, group_map) if group_map else None
+
     seeds = [args.base_seed + i for i in range(args.n_seeds)]
     top1, macro_f1, bal = [], [], []
     per_class = {c: [] for c in classes}
     for s in seeds:
         tr, va, te = defake_head.stratified_split(
             y, test_size=config.get("test_size", 0.2),
-            val_size=config.get("val_size", 0.1), seed=s, keys=pi)
+            val_size=config.get("val_size", 0.1), seed=s, keys=pi, groups=groups)
         cw = defake_head.compute_class_weights(y[tr], len(classes))
         head = defake_head._MLPHead(in_dim=Xi.shape[1], num_classes=len(classes),
                                     device=args.device, seed=s)
@@ -126,6 +133,10 @@ if __name__ == "__main__":
     parser.add_argument("--features_cache", default=None)
     parser.add_argument("--captions_csv", default=None)
     parser.add_argument("--classes", nargs="*", default=None)
+    parser.add_argument("--group_map", nargs="*", default=None,
+                        help="Path(s) to full_path,source_image_id sidecar CSV(s) for "
+                             "group-aware splitting. Default: auto-load "
+                             "<dataset_root>/openforensics/openforensics_groups.csv if present.")
     parser.add_argument("--jpeg_aug", choices=["auto", "on", "off"], default="auto")
     parser.add_argument("--n_seeds", type=int, default=10)
     parser.add_argument("--base_seed", type=int, default=42)

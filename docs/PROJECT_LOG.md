@@ -421,6 +421,250 @@ reports a threshold we could actually pick without peeking, proves the split is 
 the confound is gone across every normalized variant - the difference between a plausible result
 and a defensible one (GOLD).
 
+## 14. Colleague review response: leakage fix, fair benchmark, LOGO reframe, coupling audit
+
+**What:** A colleague reviewed the project ahead of a supervisor meeting and flagged 15 issues
+plus an honest question about OpenForensics same-source-photo coupling. Addressed the parts
+fixable without a server re-run; documented the rest as explicit BLOCKING items with a runbook
+to close them. No existing reported number is silently changed - every fix either corrects a
+bug going forward (re-run required) or adds a caveat/column to make an existing comparison
+self-documenting.
+
+- **DCT-SVM train/test-boundary leakage (blocking).** `dct_svm.py --mode random` drew its own
+  internal split stratified on the BINARY label, while the robustness test set
+  (`make_split.py`) stratifies on the 12-class GENERATOR column - same seed/test_size, different
+  partition, so a fraction of `test_index.csv` could sit inside the SVM's own training data.
+  `robustness_perturb.py` then scored PERTURBED copies of some of those training rows against
+  the SVM, inflating the "clean" DCT baseline that every §9.2 robustness delta was measured
+  against. Fix: `dct_svm.py --mode random` now accepts `--test_index <csv>`, which makes the
+  train/test boundary IDENTICAL to the shared split instead of re-deriving one. All DCT
+  robustness numbers must be regenerated with this flag (docs/PIPELINE.md updated: the DCT-SVM
+  used for robustness is now fit with `--test_index` before being reused for
+  `compare_models_significance.py` too, closing a second copy of the same bug that the original
+  runbook had by re-fitting the SVM a second time without the flag).
+- **Benchmark §8-style comparison not apples-to-apples (blocking).** GAN-fp trains on all 12
+  index classes; the DE-FAKE head trains on only its own 7 (4 reals + SD1.5/FLUX/StyleGAN3).
+  `benchmark_attribution.py` already supported `--classes` to restrict GAN-fp's class set, but
+  the comparison table did not document either method's training regime. Added
+  `classes_trained_on`/`n_classes_trained_on` to every row of `benchmark_metrics.json`'s
+  `comparison` list (DE-FAKE's own classes are read back from its `finetune_metrics.json`), plus
+  a logged warning when the two methods' class sets differ, telling you to re-run with
+  `--classes` restricted to the shared 7 for the fair number.
+- **LOGO naming (leave-one-generator-out vs leave-new-class-out).** The default
+  `leave_one_generator_out.py --targets` is `in_set_generators + finetune_new_classes` = only
+  FLUX.1-schnell and StyleGAN3-FFHQ - both classes the regular head IS trained on. That is
+  "leave-NEW-class-out", not a full LOGO sweep. Added `--all_trained_classes` (holds out every
+  real + fake trained class in turn, including a real class like CelebA) plus an
+  `is_real_class` field in `logo_summary.json`, and a runtime warning when the default targets
+  are used unmodified. `report/REPORT_OUTLINE.md` section 8 renamed/reframed accordingly and a
+  new §8b placeholder added for the full-sweep result.
+- **Out-of-set top1=0.000 footnote.** Added the one-line reframe to §8 of the outline:
+  top-1=0 is definitional (no unseen label in the output space), the false-known rate is the
+  metric that matters.
+- **Robustness AUROC gap.** `robustness_perturb.py --mode score` now computes
+  `auroc_clean`/`auroc_perturbed`/`auroc_drop` whenever a numeric `--conf_col` is present (e.g.
+  the DCT SVM's decision-function `score`), so the DCT robustness table can show ranking
+  degradation, not just balanced accuracy at a fixed threshold.
+- **`sd15_img2img` config comment.** It was never generated (absent from every dataset table
+  and result); the config note now says so explicitly ("NOT GENERATED for this run") instead of
+  the ambiguous "may not exist yet".
+- **Path A (GAN-fp feature+MLP) 73-point discrepancy.** `train_ganfp.py` (standalone) and
+  `benchmark_attribution.py`'s Path A use the identical content-stable split + an
+  index-content-hashed feature-cache signature that refuses to reuse a mismatched cache, so a
+  same-index/same-classes run cannot legitimately diverge this much. Far more likely: the
+  standalone number is stale, from an earlier/smaller run (the report already documents an
+  analogous 200-image-toy-set-vs-1626-image-real-set swing in `report/GANFP_REPORT.md` section
+  5-6). Recommendation logged in `report/REPORT_OUTLINE.md` section 6: either re-run standalone
+  with the exact index/classes/fresh cache the current benchmark used and confirm agreement, or
+  simply stop reporting a separate standalone number and cite `benchmark_metrics.json`'s
+  `path_a` block as the single source of truth.
+- **OpenForensics same-source-photo coupling.** Flagged by the colleague as a real leakage
+  vector the dHash near-duplicate audit cannot see (real and fake crops of one photo are
+  different pixels). `extract_openforensics.py` names crops by annotation id and drops the
+  source image id, so we cannot yet do group-aware splitting without a re-extraction. Added
+  `scripts/audit_openforensics_coupling.py`: a re-extraction-free QUANTIFICATION that re-parses
+  the original `*_poly.json` (metadata only) to recover annotation_id -> image_id and
+  cross-references it against the crop filenames + current split, reporting how many source
+  photos contributed both a real and a fake crop and how many of those straddle the train/test
+  boundary. Decision on document-only vs. group-aware re-extraction is deferred until that
+  number is in (see Open items below) - both paths remain available.
+- **Datasheets, hyperparameter search, CLIP+BLIP confound, no-SOTA-baseline:** all converted
+  from silent gaps into explicit, worded limitations in `report/REPORT_OUTLINE.md` section 10
+  (CNN channel sweep is now documented as an informal grid search since it demonstrably was
+  one; MLP/DCT hyperparameters are documented as fixed-at-defaults, not searched).
+
+**Why:** A colleague's review ahead of a supervisor meeting is exactly the moment to fix
+measurement bugs (leakage, unfair comparisons) rather than defend numbers that would not survive
+scrutiny, and to convert every remaining gap into an explicit, worded limitation rather than a
+silent omission - consistent with the project's GOLD framing (scientific reliability over
+maximal accuracy).
+
+**What (follow-up, same session): OpenForensics coupling - DECIDED, group-aware fix implemented.**
+Went with the scientifically cleanest option (over document-only or quantify-first):
+- `extract_openforensics.py` now records each crop's source `image_id` in
+  `openforensics_metadata.csv` (new `source_image_id`/`source_split`/`annotation_id` columns)
+  AND writes a dedicated `openforensics_groups.csv` sidecar (`full_path,source_image_id`).
+- `scripts/lib/defake_head.py`'s `stratified_split`/`_hash_stratified_split` gained an optional
+  `groups` argument: samples sharing a group id are assigned to a split side as a WHOLE group
+  (hashed on the group id), while every other row (no sidecar entry -> its own path is a
+  singleton group) is split via the EXACT original per-class hash-ranked algorithm - verified
+  byte-identical via `test_group_none_is_byte_identical_to_ungrouped` and a coupled-pair test in
+  `tests/test_defake_head.py`. Fully backward compatible: no non-OpenForensics split changes.
+- New `scripts/lib/io_utils.load_group_map` / `apply_group_map` / `default_group_map_paths`
+  helpers (auto-load `<dataset_root>/openforensics/openforensics_groups.csv` unless
+  `--group_map` overrides it), wired into `finetune_defake_head.py`, `train_ganfp.py`,
+  `benchmark_attribution.py`, `leave_one_generator_out.py`, and `make_split.py` (also switched
+  from its own ad-hoc sklearn split to the shared `defake_head.stratified_split` for consistency
+  with every other split-consuming script).
+- `audit_split_leakage.py` now also loads the group map when reconstructing the finetune split
+  and reports a new `group_straddle` field (expected 0) as a standing regression check.
+- `scripts/audit_openforensics_coupling.py` kept as an independent cross-check (re-derives the
+  coupling straight from the raw `*_poly.json` rather than trusting the sidecar).
+- **Still needs the GPU server:** re-run `extract_openforensics.py` (the sidecar only exists
+  after a fresh extraction) and then every downstream stage that touches OpenForensics rows.
+
+## 15. Pre-server-rerun check: orchestrator + group-aware-split completeness
+
+**What:** Before deleting the server copy and re-running this version, checked (and fixed) three
+specific `run_experiment.py` gaps, plus two more of the same class found while checking them:
+
+- **`stage_dct` ordering + `--test_index` (was NOT wired at all).** `run_experiment.py`'s `dct`
+  stage called `dct_svm.py --mode random` with no `--test_index`, so it still drew the SVM's own
+  internal binary-stratified split - section 14's leakage fix never actually got exercised by
+  the orchestrator. Fixed: `stage_dct` now runs `make_split.py` FIRST (writing
+  `results/{train,test}_index.csv`, added as `Ctx.train_index`/`test_index` so
+  `stage_robustness` points at the identical files instead of re-deriving the path string), then
+  trains with `--test_index` unconditionally. `stage_robustness`'s own `make_split.py` call is
+  left in place (idempotent/deterministic) so `--stages robustness` alone still works.
+- **`stage_ganfp`'s benchmark step missing `--jpeg_aug`/`--device`.** The first two GAN-fp steps
+  already passed both correctly; the THIRD step (`benchmark_attribution.py`) passed neither - so
+  every orchestrated GAN-fp-vs-DE-FAKE benchmark run silently trained Path B's CNN on CPU (that
+  script's `--device` defaults to `"cpu"`) and never JPEG-augmented (its `--jpeg_aug` is a bare
+  flag, unlike the `{auto,on,off}` choice flag the other two scripts use). Fixed: `--device
+  c.device` always added; `--jpeg_aug` appended only when `c.jpeg_aug == "on"`.
+- **`stage_attribution`'s LOGO step only ran leave-NEW-CLASS-out.** Kept that narrow run and
+  added a second step using `--all_trained_classes` into a separate
+  `results/logo_full_<variant>_<augtag>/` output - the actual full leave-one-generator-out sweep
+  report/REPORT_OUTLINE.md section 8b describes, which the orchestrator previously never
+  produced at all.
+- **Two more group-aware-split gaps found while checking the above:** `train_ganfp_cnn.py`
+  (Path B standalone trainer - used directly by `stage_ganfp`) and `ganfp_sweep.py`/
+  `seed_sweep.py` (hyperparameter/seed-variance tools) all called `defake_head.stratified_split`
+  WITHOUT a `groups=` argument, so they silently kept splitting on the OLD, non-group-aware
+  scheme even after section 14's fix. This mattered concretely for `train_ganfp_cnn.py`:
+  `stage_ganfp` runs `train_ganfp.py` (already group-aware) and `train_ganfp_cnn.py` (was NOT)
+  side by side and expects them to share the same test images - with OpenForensics coupling
+  present, they would have silently diverged. All three now load the group map and pass
+  `groups=` the same way as every other split-consuming script, with a `--group_map` override
+  flag added to each for consistency.
+
+**Why:** A code-level fix that no orchestrated run actually exercises does not fix anything in
+practice. This pass specifically targeted "will the next server run actually produce the
+corrected numbers" rather than re-auditing already-covered ground; `--dry_run` output was used to
+confirm each fix appears in the actual generated command plan, in the right order, before this
+was reported as done. Verified: `python -m compileall -q scripts tests` and `pytest -q` both
+clean after every change (54 passed, 8 skipped at the time).
+
+## 16. Follow-on gap in the robustness AUROC fix (section 15/`robustness_perturb.py`)
+
+**What:** A colleague caught that the AUROC/accuracy-drop block added to `robustness_perturb.py
+--mode score` (section 14) never actually activates for DCT scoring. It is gated behind
+resolving a ground-truth `label_col`, which only checked for `schema.LABEL` ("real"/"fake"
+string) - present in DE-FAKE's per-image CSVs, ABSENT from `dct_svm.py`'s `dct_per_image.csv`
+(columns: `full_path, generator, y_true, score, pred`; `y_true` is already numeric 1=fake).
+So every DCT robustness drop JSON silently ended up with only `n` + `label_flip_rate`, never
+`accuracy_clean`/`accuracy_perturbed`/`performance_drop`/`auroc_*` - exactly the fields §9.2
+needs for the DCT rows, while DE-FAKE's JSONs got the full block (the asymmetry only shows up by
+diffing the two JSON shapes side by side, which is why it shipped quietly). Fixed: `score()` now
+also recognizes a numeric `y_true`/`y_true_clean` column as ground truth (falls back to it only
+when no `label`/`label_clean` column exists, so DE-FAKE's path is unchanged). Added
+`tests/test_robustness_perturb.py` (DE-FAKE-schema and DCT-schema cases) so this asymmetry
+cannot silently regress again.
+
+**Why:** As flagged by the colleague, this was harmless for a run that never adds AUROC columns
+to the §9.2 table, but is exactly the fix needed if it does - worth closing now rather than
+discovering it after the next server run's DCT robustness JSONs come back missing fields again.
+
+## 17. Group membership must be identity-based, not call-population-based (deeper coupling fix)
+
+**What:** A colleague raised a design-level note: the attribution head's split
+(`finetune_defake_head.py`) uses the content-stable hash split, while the robustness split
+(`make_split.py`) was (at the time) a plain generator-stratified sklearn split - different
+partitions, meaning `attr_clean.csv` could include images the head was trained on. That specific
+premise was already resolved by section 14/15's `make_split.py` rewrite (it now calls the SAME
+`defake_head.stratified_split`) - but checking it empirically (not just by inspection) surfaced a
+DEEPER version of the same risk that the rewrite had not actually closed:
+
+`_hash_stratified_split`'s group-vs-singleton decision was based on **counting how many rows of
+a group id are present in the arrays passed to that specific call** (`size_by_group[g] <= 1`).
+That count is not stable across callers: `finetune_defake_head.py` restricts to the TRAINED
+class set BEFORE splitting, which removes `OpenForensics-fake` (out-of-set) entirely - so an
+`OpenForensics` (real) row whose paired source photo also produced a sampled
+`OpenForensics-fake` crop loses its only groupmate and gets treated as a lone SINGLETON there
+(split via the per-class hash-rank algorithm), while `make_split.py`'s unrestricted call still
+sees both members and treats the SAME real row as part of a 2-member GROUP (split via the
+group-id hash). Two different algorithms picking two different buckets for the identical row ->
+exactly the leakage the colleague was worried about, just via a more specific mechanism than
+"different split functions." Verified numerically before/after (synthetic index with trained +
+out-of-set classes + 10 coupled pairs): pre-fix, 2/10 coupled real rows disagreed between the two
+call styles (`make_split test rows that were in finetune train/val: 2`); post-fix, 0.
+
+**Fix:** Changed the grouped/ungrouped decision in `_hash_stratified_split`
+(`scripts/lib/defake_head.py`) from a co-occurrence COUNT (`size_by_group[g] <= 1`) to an
+IDENTITY check (`groups[i] != keys[i]`, i.e. "did `io_utils.apply_group_map` find an explicit
+sidecar entry for this row, regardless of whether any other member of that group happens to be
+present in this call"). A grouped row's bucket now depends ONLY on `(group_id, seed)`, so it is
+identical across every caller no matter how that caller filtered its population beforehand -
+including the case where a row is the ONLY member of its group present in a given call because
+its sibling was filtered out as out-of-set. `groups=None` (or every key its own group, the
+default for every non-OpenForensics dataset) is unaffected: `is_grouped` is then `False`
+everywhere, same as before. Added two regression tests to `tests/test_defake_head.py`:
+`test_group_membership_is_id_based_not_call_population_based` (unit-level: a group whose second
+member is simply absent from the call must still resolve via the group hash, not per-class
+ranking) and `test_group_decision_matches_across_differently_filtered_calls` (end-to-end:
+simulates the actual finetune-restricted vs. make_split-unrestricted scenario and asserts zero
+disagreement/leakage).
+
+**Why:** This is the difference between "group-aware splitting exists" and "group-aware
+splitting actually prevents the leak in the one case (OpenForensics real paired with an
+out-of-set fake) that motivated it in the first place." Confirms the value of checking a fix
+empirically against the real config shape (trained vs. out-of-set classes) rather than trusting
+that "groups=" being threaded through every script is sufficient on its own.
+
+## 18. Two more `run_experiment.py` review findings
+
+**What:** A colleague flagged two more things in the orchestrator:
+
+- **`PERTURBATIONS` was a hand-typed copy of `configs/config.yaml`'s `robustness:` block** -
+  adding a perturbation to the config (e.g. `sharpen: [1.0, 2.0]`) would silently never reach
+  the orchestrator's `stage_robustness`. Fixed: added `_perturbation_names(config_path)`, which
+  loads the YAML and calls `robustness_perturb._perturbations` - the SAME function
+  `robustness_perturb.py` itself uses to build the real perturbation ops - so the two can never
+  drift apart again. Deliberately uses a plain `yaml.safe_load` rather than
+  `io_utils.load_config` (which resolves `${WTP_ROOT}`-style placeholders and needs
+  `configs/paths.env` / the real environment set up): the `robustness:` block has no
+  placeholders, and `--dry_run` should keep working on a machine with no server environment
+  configured at all, matching how every other `Ctx` field already avoids that dependency.
+  `Ctx.perturbations` is now computed once per run instead of a module-level constant.
+  Verified: a temporary config with an added `sharpen: 2.0` value produced exactly 7 more
+  dry-run steps (one full perturbation's worth) without any code change, and `--dry_run` still
+  works with `WTP_ROOT` unset. Covered by `tests/test_run_experiment.py` (matches the real
+  config, grows when the config grows, and works without env placeholders).
+- **`stage_robustness` writes DE-FAKE prediction CSVs (`robust_clean_pred.csv`,
+  `robust_<name>_pred.csv`) under `dataset/`, not `results/`.** Checked against
+  `docs/PIPELINE.md`'s manual runbook (`$DS/robust_clean_pred.csv` etc.) - this is the
+  established, intentional convention: every raw `WTP_PRED_CSV` output from
+  `run_defake_batch.py` lives in `dataset/` alongside `master_metadata.csv` and the other
+  `defake_predictions*.csv` files; `results/` holds only DERIVED analysis artifacts.
+  `stage_detect`'s `c.pred` already follows the same convention. No change made - confirmed as
+  intended, not a bug.
+
+**Why:** The `PERTURBATIONS` fix is the same class of issue as sections 14-17: a
+manually-duplicated copy of something that has a single real source of truth elsewhere will
+eventually drift. The `dataset/`-vs-`results/` question was worth checking explicitly rather
+than assuming, since it looks inconsistent at first glance; cross-referencing the manual runbook
+confirmed it is not.
+
 ---
 
 ## Open items still needing the supervisor
@@ -428,3 +672,10 @@ and a defensible one (GOLD).
 Answered by Dennis (see section 12): (A) GAN-Fingerprints re-implementation - APPROVED (with AI
 disclosure); (B) reals - ADD OpenForensics (pending JSON upload). Still open: (C) the report
 submission date; and an optional BBB call offered for this Thu/Fri if needed.
+
+(D) OpenForensics same-source-photo coupling (section 14/17): DECIDED - group-aware fix,
+implemented in code (extract_openforensics.py sidecar + defake_head.stratified_split groups= +
+wired through every split-consuming script, with the deeper identity-based-grouping fix in
+section 17). Not yet closed out: needs a host re-extraction (to actually generate the
+openforensics_groups.csv sidecar) and a full re-run of every OpenForensics-touching stage on the
+server before the fix is reflected in reported numbers.

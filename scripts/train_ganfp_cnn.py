@@ -105,11 +105,18 @@ def main(args):
     y = defake_head.encode_labels(np.array(generators, dtype=object), classes)
     logger.info("Training over %d classes: %s", len(classes), classes)
 
+    # Group-aware split (same-source-photo coupling fix, e.g. OpenForensics real+fake crop
+    # pairs); see finetune_defake_head.py for details. No-op when no sidecar is found.
+    group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
+    group_map = io_utils.load_group_map(group_map_paths, logger)
+    paths_arr = np.asarray(paths)
+    groups = io_utils.apply_group_map(paths_arr, group_map) if group_map else None
+
     # Content-stable split keyed on full_path (same scheme as finetune_defake_head.py) so the
     # GAN-fp and DE-FAKE test sets are the SAME images -> the benchmark comparison is valid.
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
-        val_size=config.get("val_size", 0.1), seed=seed, keys=np.asarray(paths))
+        val_size=config.get("val_size", 0.1), seed=seed, keys=paths_arr, groups=groups)
     logger.info("Split sizes: train=%d val=%d test=%d", len(tr), len(va), len(te))
 
     labels_int = y.tolist()
@@ -203,6 +210,10 @@ if __name__ == "__main__":
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--classes", nargs="*", default=None,
                         help="Restrict to these generator classes (default: all present)")
+    parser.add_argument("--group_map", nargs="*", default=None,
+                        help="Path(s) to full_path,source_image_id sidecar CSV(s) for "
+                             "group-aware splitting. Default: auto-load "
+                             "<dataset_root>/openforensics/openforensics_groups.csv if present.")
     parser.add_argument("--jpeg_aug", choices=["auto", "on", "off"], default="off",
                         help="JPEG-augment inputs (auto = use config.augmentation.jpeg_train)")
     parser.add_argument("--epochs", type=int, default=None,

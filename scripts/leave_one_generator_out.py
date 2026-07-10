@@ -8,11 +8,27 @@ absent from training, the closed-set head MUST force every held-out image into a
 We record how those forced labels distribute and how confident they are - the central
 research question the supervisors emphasized.
 
+NAMING CAVEAT: this script is GENERIC (any generator in the index can be a --targets value,
+including a REAL class like "CelebA"), but --targets defaults to only the two
+finetune_new_classes (FLUX.1-schnell, StyleGAN3-FFHQ) - generators the regular head IS trained
+on. That default run is more accurately "leave-new-class-out": it tests whether the two most
+recently added classes could be dropped and still be recognised, not a full leave-one-out sweep
+over every trained class. For an actual LOGO report, pass --all_trained_classes (below) or an
+explicit --targets list covering every real + fake class the head is normally trained on
+(e.g. also "CelebA", "London-DB", "FFHQ", "OpenForensics", "SD1.5") so the report can state a
+false-known rate averaged over ALL trained classes, not just the two most favorable ones.
+
 Run with the DE-FAKE interpreter (venv_sd15 on the server):
   $WTP_PY_DEFAKE scripts/leave_one_generator_out.py --config configs/config.yaml \
       --index results/index_scaled.csv --out_dir results/logo_scaled/ \
       --features_cache results/clip_feats_scaled.npz \
       --targets "FLUX.1-schnell" "StyleGAN3-FFHQ"
+
+  # Proper LOGO: hold out EVERY trained class in turn (reals included), one flag:
+  $WTP_PY_DEFAKE scripts/leave_one_generator_out.py --config configs/config.yaml \
+      --index results/index_aspect.csv --out_dir results/logo_full_aspect/ \
+      --features_cache results/clip_feats_aspect_jpegaug.npz \
+      --captions_csv $WTP_ROOT/dataset/defake_predictions_all.csv --all_trained_classes
 """
 import argparse
 import json
@@ -52,12 +68,34 @@ def main(args):
     # these out is the real generalization ablation. (A never-trained generator is already
     # "out" by construction - finetune force-scores those.) Override with --targets.
     attr = config.get("attribution", {}) or {}
-    default_targets = list(dict.fromkeys(
-        list(attr.get("in_set_generators", [])) + list(attr.get("finetune_new_classes", []))))
-    targets = args.targets or default_targets
+    if args.all_trained_classes:
+        # Proper LOGO: every class the regular head is normally trained on (reals included),
+        # not just the two finetune_new_classes. See the module docstring's naming caveat.
+        targets = list(dict.fromkeys(
+            list(attr.get("real_generators", [])) + list(attr.get("in_set_generators", []))
+            + list(attr.get("finetune_new_classes", []))))
+        logger.info("--all_trained_classes: LOGO will hold out every trained class in turn "
+                    "(%d classes, reals included) -> this is the actual leave-one-*generator*-"
+                    "out sweep, not leave-new-class-out.", len(targets))
+    else:
+        default_targets = list(dict.fromkeys(
+            list(attr.get("in_set_generators", [])) + list(attr.get("finetune_new_classes", []))))
+        targets = args.targets or default_targets
+        if targets == default_targets and not args.targets:
+            logger.warning(
+                "Using the DEFAULT LOGO targets (%s) = finetune_new_classes only. This is "
+                "'leave-NEW-CLASS-out', not a full leave-one-generator-out sweep. Pass "
+                "--all_trained_classes (or an explicit --targets covering every trained "
+                "class) for the stricter generalization number.", default_targets)
     targets = [t for t in targets if t in all_generators]
     logger.info("Generators present: %s; LOGO targets: %s", all_generators, targets)
 
+    # Group-aware split (same-source-photo coupling fix, e.g. OpenForensics real+fake crop
+    # pairs); see finetune_defake_head.py for details. No-op when no sidecar is found.
+    group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
+    group_map = io_utils.load_group_map(group_map_paths, logger)
+
+    real_generators = set(attr.get("real_generators", []))
     per_image_rows = []
     summary = {}
     for target in targets:
@@ -73,8 +111,12 @@ def main(args):
         # Carve a content-stable 10% micro-val from the LOGO training data so the head can select
         # its best checkpoint (early stopping), matching finetune_defake_head.py. Without this,
         # best_state is never set and the head keeps the last-epoch weights (fixed-epoch training).
+        train_paths = paths[train_mask]
+        train_groups = (io_utils.apply_group_map(train_paths, group_map)
+                        if group_map else None)
         sub_tr, sub_va, _ = defake_head.stratified_split(
-            y_train, test_size=0.0, val_size=0.1, seed=seed, keys=paths[train_mask])
+            y_train, test_size=0.0, val_size=0.1, seed=seed, keys=train_paths,
+            groups=train_groups)
         cw = defake_head.compute_class_weights(y_train[sub_tr], len(train_classes))
         head = defake_head._MLPHead(in_dim=X.shape[1], num_classes=len(train_classes),
                                     device=args.device, seed=seed)
@@ -91,6 +133,7 @@ def main(args):
         fkr = metrics.false_known_rate(conf, threshold=args.conf_threshold)
         summary[target] = {
             "n_held_out": int(test_mask.sum()),
+            "is_real_class": target in real_generators,
             "train_classes": train_classes,
             "forced_label_distribution": dict(dist),
             "mean_confidence": float(np.mean(conf)),
@@ -122,7 +165,16 @@ if __name__ == "__main__":
                         help="Optional predictions CSV for faithful 1024-dim image+text features")
     parser.add_argument("--targets", nargs="*", default=None,
                         help="Generators to hold out (default: trained fake set = "
-                             "in_set_generators + finetune_new_classes)")
+                             "in_set_generators + finetune_new_classes = 'leave-new-class-out', "
+                             "NOT a full LOGO sweep; see module docstring)")
+    parser.add_argument("--all_trained_classes", action="store_true",
+                        help="Proper LOGO: hold out EVERY class the head is normally trained "
+                             "on in turn (real_generators + in_set_generators + "
+                             "finetune_new_classes), overriding --targets.")
+    parser.add_argument("--group_map", nargs="*", default=None,
+                        help="Path(s) to full_path,source_image_id sidecar CSV(s) for "
+                             "group-aware splitting. Default: auto-load "
+                             "<dataset_root>/openforensics/openforensics_groups.csv if present.")
     parser.add_argument("--jpeg_aug", choices=["auto", "on", "off"], default="auto",
                         help="JPEG-augment features (auto = use config.augmentation.jpeg_train)")
     parser.add_argument("--conf_threshold", type=float, default=0.5)

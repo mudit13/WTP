@@ -84,6 +84,52 @@ def ensure_dir(path: str) -> str:
     return path
 
 
+def load_group_map(paths, logger=None) -> Dict[str, str]:
+    """Load one or more `full_path,source_image_id` sidecar CSVs (e.g. the
+    `openforensics_groups.csv` written by extract_openforensics.py) into a single
+    {full_path: group_id} dict, for group-aware splitting (defake_head.stratified_split's
+    `groups=` argument). Rows/files not present are silently skipped (a missing sidecar just
+    means that dataset has no known coupling and falls back to singleton groups, i.e. the split
+    behaves exactly as before for it). `paths` may be a single path or a list of paths.
+    """
+    import csv as _csv
+
+    if isinstance(paths, str):
+        paths = [paths]
+    group_map: Dict[str, str] = {}
+    for p in paths or []:
+        if not p or not os.path.exists(p):
+            continue
+        with open(p, "r", newline="", encoding="utf-8") as fh:
+            for row in _csv.DictReader(fh):
+                full_path = row.get("full_path")
+                group_id = row.get("source_image_id")
+                if full_path and group_id:
+                    group_map[full_path] = group_id
+        if logger:
+            logger.info("Loaded group map %s (%d cumulative entries)", p, len(group_map))
+    return group_map
+
+
+def default_group_map_paths(config: dict):
+    """Conventional sidecar location(s) to auto-load for group-aware splitting when a script's
+    --group_map flag is not passed. Currently just OpenForensics's
+    <dataset_root>/openforensics/openforensics_groups.csv; extend this list if another dataset
+    grows the same same-source-multi-crop coupling risk."""
+    root = config.get("dataset_root")
+    if not root:
+        return []
+    return [os.path.join(str(root), "openforensics", "openforensics_groups.csv")]
+
+
+def apply_group_map(paths, group_map: Dict[str, str]):
+    """Map an array-like of full_path values to group ids via `group_map`, falling back to the
+    path itself (a singleton group) for any path not present -- so calling this with an empty
+    map is a no-op that reproduces the pre-group-aware split exactly."""
+    import numpy as np
+    return np.array([group_map.get(str(p), str(p)) for p in paths], dtype=object)
+
+
 def setup_logging(name: str, log_dir: Optional[str] = None) -> logging.Logger:
     """Configure a logger that writes to stdout and a timestamped file in logs/."""
     if log_dir is None:

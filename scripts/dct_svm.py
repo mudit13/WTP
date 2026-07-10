@@ -7,7 +7,10 @@ LINEAR-kernel 2-class classifier (real vs fake) - documented explicitly to avoid
 "what kind of classifier is this" confusion from the interim meeting.
 
 Modes:
-  random        : stratified random train/test split (standard in-set sanity check)
+  random        : stratified random train/test split (standard in-set sanity check). Pass
+                  --test_index to make the held-out set EXACTLY the rows of an existing split
+                  CSV (e.g. results/test_index.csv) instead of drawing a fresh internal split -
+                  see the leakage note below.
   out_of_set    : hold out one or more generators entirely from training and test only on
                   them (measures detection generalization to unseen generators)
   predict       : load a PREVIOUSLY fitted model (--model dct_svm.joblib) and score an external
@@ -18,9 +21,22 @@ Modes:
 random/out_of_set output metrics JSON + a fitted model (joblib). Uses the SVM decision function
 as the "fake" score for AUROC/AUPRC.
 
+LEAKAGE NOTE (fixed via --test_index): the robustness pipeline (make_split.py -> test_index.csv)
+stratifies its split on the 12-class GENERATOR column, while plain `--mode random` here
+stratifies on the BINARY real/fake label. Same seed + same test_size do NOT guarantee the same
+partition when the stratification column differs, so a fraction of `test_index.csv` rows can
+land in this script's internal TRAIN split. robustness_perturb.py then scores perturbed copies
+of those rows with `--mode predict`, which is partly evaluating the SVM on (perturbed) training
+data -> an inflated "clean" baseline that every robustness delta in the report is measured
+against. Always pass --test_index results/test_index.csv for any DCT-SVM run whose test rows
+feed the robustness pipeline, so the SVM's train/test boundary is IDENTICAL to the shared split.
+
 Usage:
   $WTP_PY_DEFAKE scripts/dct_svm.py --features results/dct_features_scaled.npz \
       --out_dir results/dct_svm_scaled/ --mode random
+  # Robustness-safe: train/test boundary matches results/{train,test}_index.csv exactly.
+  $WTP_PY_DEFAKE scripts/dct_svm.py --features results/dct_features_aspect.npz \
+      --out_dir results/dct_svm_aspect/ --mode random --test_index results/test_index.csv
   $WTP_PY_DEFAKE scripts/dct_svm.py --features results/dct_features_scaled.npz \
       --out_dir results/dct_svm_oos/ --mode out_of_set \
       --holdout_generators "FLUX.1-schnell" "StyleGAN3-FFHQ"
@@ -35,7 +51,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import io_utils, metrics  # noqa: E402
+from lib import io_utils, metrics, schema  # noqa: E402
 
 import numpy as np  # noqa: E402
 
@@ -112,14 +128,35 @@ def main(args):
         return
 
     if args.mode == "random":
-        from sklearn.model_selection import train_test_split
-        idx = np.arange(len(y))
-        tr, te = train_test_split(idx, test_size=args.test_size,
-                                  stratify=y, random_state=args.seed)
-        clf, result, scores, preds = _fit_eval(X[tr], y[tr], X[te], y[te], args.seed)
-        te_idx = te
-        summary["test"] = result
-        logger.info("Random split test metrics: %s", json.dumps(result))
+        if args.test_index:
+            import pandas as pd
+            test_paths = set(pd.read_csv(args.test_index)[schema.PATH].astype(str))
+            is_test = np.array([p in test_paths for p in paths])
+            n_matched = int(is_test.sum())
+            if n_matched == 0:
+                raise SystemExit(
+                    "--test_index %s matched 0 rows in --features %s; check that both were "
+                    "built from the same index/variant." % (args.test_index, args.features))
+            te = np.where(is_test)[0]
+            tr = np.where(~is_test)[0]
+            clf, result, scores, preds = _fit_eval(X[tr], y[tr], X[te], y[te], args.seed)
+            te_idx = te
+            summary["split_source"] = args.test_index
+            summary["n_test_index_rows"] = len(test_paths)
+            summary["n_test_matched"] = n_matched
+            summary["test"] = result
+            logger.info("Fixed split (--test_index, matched %d/%d rows) test metrics: %s",
+                        n_matched, len(test_paths), json.dumps(result))
+        else:
+            from sklearn.model_selection import train_test_split
+            idx = np.arange(len(y))
+            tr, te = train_test_split(idx, test_size=args.test_size,
+                                      stratify=y, random_state=args.seed)
+            clf, result, scores, preds = _fit_eval(X[tr], y[tr], X[te], y[te], args.seed)
+            te_idx = te
+            summary["split_source"] = "internal_binary_stratified_random_split"
+            summary["test"] = result
+            logger.info("Random split test metrics: %s", json.dumps(result))
 
     elif args.mode == "out_of_set":
         if not args.holdout_generators:
@@ -173,6 +210,12 @@ if __name__ == "__main__":
     parser.add_argument("--model", default=None,
                         help="Saved dct_svm.joblib to load (required for --mode predict).")
     parser.add_argument("--holdout_generators", nargs="*", default=None)
-    parser.add_argument("--test_size", type=float, default=0.2)
+    parser.add_argument("--test_size", type=float, default=0.2,
+                        help="Ignored when --test_index is given (mode=random only).")
+    parser.add_argument("--test_index", default=None,
+                        help="mode=random only: CSV (e.g. results/test_index.csv) whose "
+                             "full_path rows define the held-out test set exactly, instead of "
+                             "an internal binary-stratified split. Use this whenever the DCT "
+                             "test set feeds the robustness pipeline (see LEAKAGE NOTE above).")
     parser.add_argument("--seed", type=int, default=42)
     main(parser.parse_args())

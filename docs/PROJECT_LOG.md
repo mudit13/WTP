@@ -900,3 +900,71 @@ Something to keep in mind: `apply_group_map_with_lookup`'s own near-miss check (
 `apply_group_map`) is checked against the RESOLVED (source_path) key, so it would still catch a
 prefix-only mismatch even after this fix; it simply cannot catch "the sidecar and index disagree
 on which file is the source of truth," which is a structurally different problem.
+
+## 23. FINAL RESOLUTION: the group-aware fix works; the remaining ~100% "straddle" is by design
+
+**What:** After section 22's fix landed and was pulled to the server, `audit_openforensics_
+coupling.py` STILL reported `n_real_fake_pairs_straddling_splits: 12/12` - completely unchanged.
+Per the colleague's explicit instruction, diagnosed with a local reproduction BEFORE writing any
+more code: ran `_finetune_splits` end to end (not just the already-verified helper functions) on
+a synthetic index matching the server's actual shape. Every synthetic `OpenForensics-fake` row
+came back `split=unseen`, 100% of the time, no exceptions.
+
+**Root cause (not a bug):** `configs/config.yaml` lists `OpenForensics-fake` under
+`out_of_set_generators`, never `in_set_generators`/`finetune_new_classes` - a deliberate,
+supervisor-discussed design (section 12: "a genuinely unseen manipulation type = clean
+generalization probe"). `_finetune_splits`'s `in_mask` filters generators to
+`real_generators | trained_fakes` BEFORE `stratified_split` is ever called - `OpenForensics-fake`
+rows never reach the split algorithm at all; they are unconditionally `"unseen"`. Since
+`OpenForensics` (real) rows DO go through train/val/test, ANY coupled pair will show a
+different `split` label for its real vs. fake member essentially always - this has NOTHING to do
+with whether group-aware splitting works, because the fake side never participates in "the
+split" as a concept. No change to `stratified_split`/`apply_group_map_with_lookup` can fix this,
+because there is nothing to fix: the group-aware mechanism only prevents leakage BETWEEN
+train/val/test, and OpenForensics-fake is never in any of those buckets.
+
+**The metric that actually matters** (confirmed with the server's REAL data, not synthetic):
+of the 12 coupled photos, how many have their `OpenForensics` (real) sibling specifically in
+`train` (the only split membership that means the model's weights were actually fit on it -
+`val`/`test` membership is not leakage either)? Answer, from the server:
+```
+Coupled photos: 12
+Real-sibling split breakdown for those coupled photos:
+train    10
+test      1
+val       1
+```
+**10 of 300 (3.3%) of the out-of-set `OpenForensics-fake` evaluation crops have a same-source-photo
+real crop in the training set.** The model did not train on those exact fake images - it saw a
+DIFFERENT face crop from the SAME photograph. This narrows, but does not eliminate, the
+"genuinely unseen manipulation type" claim for those 10 specific images.
+
+**Decision (colleague, given the options: document / exclude the ~10-12 real crops from
+training / exclude the 12 coupled fakes from the OOD eval population): DOCUMENT.** Given the
+small absolute magnitude (3.3% of the OOD probe) and the narrow leakage mechanism (a different
+crop from the same scene, not the same image), reporting the exact, precisely-measured number is
+the right level of engineering effort here - not a further pipeline change and re-run.
+
+**Follow-up fix (audit script clarity, not a pipeline/data change):**
+`audit_openforensics_coupling.py`'s `n_real_fake_pairs_straddling_splits` metric is actively
+misleading whenever one label is permanently out-of-set by design (reads ~100% regardless of
+whether grouping works) - refactored the group classification into a standalone
+`_classify_coupled_groups()` function and added `n_real_fake_pairs_train_fit_leak` as the
+headline metric (one label actually fit on "train", the other label's crop anywhere else) with
+the old broad metric kept for transparency but explicitly marked as not the number to read. The
+`interpretation` field in the output JSON now states this explicitly, citing this project's own
+measured 12-vs-10 numbers as the worked example. Added
+`tests/test_audit_openforensics_coupling.py::test_classify_coupled_groups_train_fit_leak_vs_straddling`
+(a real-in-train/fake-unseen case must be flagged; a real-in-val-or-test/fake-unseen case must
+NOT be flagged as a fit leak; a both-in-train case is correctly same_side, not straddling).
+Full suite: 74 passed, 8 skipped.
+
+**Why:** Three rounds of "still broken" turned out to be: (1) a real host/container prefix bug
+(section 21), (2) a real variant-index full_path-rewrite bug (section 22), and (3) NOT a bug at
+all - a structural consequence of a supervisor-approved design decision, which the audit script's
+own metric was reporting in a misleading way. Distinguishing "the fix doesn't work" from "the fix
+works perfectly and the remaining number means something different than you think" required
+verifying with real data at every step rather than assuming either "it's fixed" or "it's still
+broken" - exactly the discipline the colleague asked for ("ask me to run commands to find the
+issue first before jumping to a fix"), applied three times in a row, with three different real
+answers each time.

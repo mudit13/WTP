@@ -383,25 +383,42 @@ scientifically reliable evaluation, not maximal accuracy.
   filtered its population first. Two regression tests added
   (`tests/test_defake_head.py::test_group_membership_is_id_based_not_call_population_based` and
   `::test_group_decision_matches_across_differently_filtered_calls`).
-  **Even deeper fix, found on the actual first server run (sections 21-22):** the group-aware
-  split was a complete no-op end to end, for TWO independent, compounding reasons. (1)
-  `extract_openforensics.py` (host, required for `/vol1`) recorded the sidecar's `full_path`
+  **Two real infrastructure bugs found and fixed on the actual first server run (sections
+  21-22), plus a THIRD apparent failure that turned out not to be a bug at all (section 23):**
+  (1) `extract_openforensics.py` (host, required for `/vol1`) recorded the sidecar's `full_path`
   using the HOST's absolute path prefix, while `build_master_index.py` (container) records the
-  SAME physical files under the CONTAINER's prefix - fixed via `--record_prefix`. (2) Even after
-  fixing (1), the straddle count was UNCHANGED - `prepare_variants.py` (which produces the
-  `index_aspect.csv` every stage actually trains on) rewrites `full_path` to a NEW derived
-  variant file, keeping the original extraction path only in `source_path`; the sidecar was
-  written against that original path, so a variant index's `full_path` could never match it
-  regardless of prefix. Fixed by resolving each row's group-map lookup key via `source_path`
-  first (`io_utils.apply_group_map_with_lookup`), with a verified-correct fallback to the row's
-  OWN `full_path` (not the resolved key) for genuinely ungrouped rows.
-  `io_utils.apply_group_map` also now loudly warns (`GROUP MAP PREFIX MISMATCH`) on a
-  same-filename/different-prefix near-miss, catching failure mode (1) automatically in any
-  future run; failure mode (2) produces a completely different filename (not just a different
-  prefix) so it is not caught by that check and instead required the `source_path` fix. **Every
-  OpenForensics-inclusive number from the first full run is invalid until both fixes are pulled
-  and every split-dependent stage is re-run** - `n_real_fake_pairs_straddling_splits` must read
-  `0` before trusting anything downstream of it.
+  SAME physical files under the CONTAINER's prefix - fixed via `--record_prefix`. (2)
+  `prepare_variants.py` (which produces `index_aspect.csv`, the index every stage actually
+  trains on) rewrites `full_path` to a NEW derived variant file, keeping the original extraction
+  path only in `source_path`; the sidecar was written against that original path, so a variant
+  index's `full_path` could never match it regardless of prefix - fixed by resolving each row's
+  group-map lookup key via `source_path` first (`io_utils.apply_group_map_with_lookup`). (3)
+  After both fixes, `audit_openforensics_coupling.py` STILL reported the coupled photos as
+  "100% straddling" - traced (not re-guessed) to `OpenForensics-fake` being a permanently
+  out-of-set generator BY DESIGN (never in `in_set_generators`/`finetune_new_classes`, so it
+  never enters the train/val/test split algorithm at all); ANY coupled pair will show a
+  different split label for its real vs. fake member almost by definition, independent of
+  whether grouping works. The metric that actually matters - of the 12 coupled photos, how many
+  have their REAL sibling specifically in `train` (the model's weights were actually fit on it,
+  vs. `val`/`test` which are not leakage either) - is **10/12, i.e. 10 of 300 (3.3%) of the
+  out-of-set `OpenForensics-fake` evaluation crops have a same-source-photo real crop in
+  training.** The model never saw those exact fake images, only a different face crop from the
+  same photograph.
+  **Decision: document, not further re-engineer.** Given the small absolute magnitude (3.3%)
+  and the narrow leakage mechanism, this is reported as a measured, bounded limitation rather
+  than triggering another pipeline change/re-run. State this explicitly in the report:
+  *"12 of the 600 sampled OpenForensics crops (300 real + 300 fake) share a source photograph
+  with a crop of the opposite label. Because `OpenForensics-fake` is deliberately held fully
+  out-of-set (never trained on), 10 of these 12 coupled photos have their real sibling in the
+  training set - meaning 10 of the 300 (3.3%) out-of-set OpenForensics-fake evaluation images
+  have a different face crop from the same source photograph in training. This narrows, but
+  does not eliminate, the 'genuinely unseen manipulation type' claim for those 10 images; the
+  group-aware split fix (verified working correctly for classes that ARE part of the
+  train/val/test split) cannot address this specific case because the fake side is never part
+  of that split to begin with."* `audit_openforensics_coupling.py`'s output JSON now reports
+  `n_real_fake_pairs_train_fit_leak` (10 here) as the headline metric instead of the broad,
+  misleading `n_real_fake_pairs_straddling_splits` (12 here, ~100% whenever one label is
+  permanently out-of-set, regardless of whether grouping works).
 - OpenForensics wiring: reals are added as a TRAINED real class to diversify the narrow real class
   (Dennis's #1 steer), OF-fake is kept out-of-set (unseen manipulation), and the same-photo pairs
   are a strong within-dataset confound control. Consequence to state: OF reals are therefore NOT a

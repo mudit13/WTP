@@ -34,10 +34,14 @@ different split silently mapping to the wrong photo.
 Reports:
   - how many source photos contributed more than one crop to our sample
   - how many of those photos contributed BOTH a real and a fake crop (the coupled population)
-  - of THOSE, how many have the real crop and the fake crop on DIFFERENT sides of the split
-    (the actual leak: e.g. real in train, fake in test) vs. the same side (statistically
-    dependent but not a train/test leak)
-  - a handful of concrete example groups for spot-checking
+  - n_real_fake_pairs_train_fit_leak (THE headline number): of those, how many have one crop
+    actually FIT ON ("train") while the other-label crop is anywhere else (val/test/unseen) -
+    the only case that is genuine weight-fitting leakage
+  - n_real_fake_pairs_straddling_splits: a broader (and, when one label is permanently
+    out-of-set by design, much less meaningful) count of ANY split-label difference - kept for
+    transparency, but do not read this as the leakage number; see the "interpretation" field in
+    the output JSON for why it can look alarming even when everything works correctly
+  - a handful of concrete example groups for spot-checking (train_fit_leak examples first)
 
 Usage (needs the ORIGINAL OpenForensics polygon JSON(s), e.g. on the host where
 /vol1/share/DeepFake/OpenForensics is mounted, or a copy). Single split:
@@ -121,6 +125,47 @@ def _split_and_ann_id_from_path(path):
     if not m:
         return None, None
     return m.group(1), int(m.group(2))
+
+
+def _classify_coupled_groups(both_classes):
+    """For each coupled (real+fake sharing a source photo) group, classify it into:
+      - straddling: ANY split-label difference between members (broad, often misleading - see
+        train_fit_leak below)
+      - same_side: every member has the identical split label
+      - train_test_bridge: real_splits and fake_splits are both non-empty and DIFFER as SETS
+        (a slightly narrower cut of straddling)
+      - train_fit_leak: THE metric that actually matters - one label's crop was actually FIT ON
+        ("train") while the OTHER label's crop is anywhere else (val/test/unseen). This is
+        deliberately NOT the same as "straddling": a label permanently excluded from
+        train/val/test by design (e.g. an out-of-set generator, always "unseen") will straddle
+        against its sibling whenever that sibling is anywhere but "unseen" itself (val/test
+        membership is not leakage either - the model's weights are never fit on those), so raw
+        straddling looks alarming (near 100%) even when everything works exactly as designed.
+        train_fit_leak isolates the one case that is genuine weight-fitting leakage.
+
+    Returns (straddling, same_side, train_test_bridge, train_fit_leak), each a dict of the same
+    shape as `both_classes` (group id -> list of row dicts), filtered to the matching groups.
+    """
+    straddling, same_side, train_test_bridge, train_fit_leak = {}, {}, {}, {}
+    for iid, rows in both_classes.items():
+        splits = {row["split"] for row in rows}
+        real_splits = {row["split"] for row in rows if row["label"] == "real"}
+        fake_splits = {row["split"] for row in rows if row["label"] == "fake"}
+        if len(splits) > 1:
+            straddling[iid] = rows
+            if real_splits and fake_splits and real_splits != fake_splits:
+                train_test_bridge[iid] = rows
+            real_rows = [r for r in rows if r["label"] == "real"]
+            fake_rows = [r for r in rows if r["label"] == "fake"]
+            real_in_train = any(r["split"] == "train" for r in real_rows)
+            fake_in_train = any(r["split"] == "train" for r in fake_rows)
+            fake_not_in_train = any(r["split"] != "train" for r in fake_rows)
+            real_not_in_train = any(r["split"] != "train" for r in real_rows)
+            if (real_in_train and fake_not_in_train) or (fake_in_train and real_not_in_train):
+                train_fit_leak[iid] = rows
+        else:
+            same_side[iid] = rows
+    return straddling, same_side, train_test_bridge, train_fit_leak
 
 
 def main(args):
@@ -214,20 +259,8 @@ def main(args):
         if {"real", "fake"} <= labels or len({row["generator"] for row in rows}) > 1:
             both_classes[iid] = rows
 
-    straddling = {}
-    same_side = {}
-    train_test_bridge = {}
-    for iid, rows in both_classes.items():
-        splits = {row["split"] for row in rows}
-        real_splits = {row["split"] for row in rows if row["label"] == "real"}
-        fake_splits = {row["split"] for row in rows if row["label"] == "fake"}
-        if len(splits) > 1:
-            straddling[iid] = rows
-            # Direct train<->{val,test,unseen} bridge between the real and fake crop of ONE photo.
-            if real_splits and fake_splits and real_splits != fake_splits:
-                train_test_bridge[iid] = rows
-        else:
-            same_side[iid] = rows
+    straddling, same_side, train_test_bridge, train_fit_leak = _classify_coupled_groups(
+        both_classes)
 
     def _examples(d, cap):
         out = []
@@ -242,21 +275,32 @@ def main(args):
         "n_source_photos_total": n_photos_total,
         "n_source_photos_multi_crop": len(multi),
         "n_source_photos_real_and_fake": len(both_classes),
+        "n_real_fake_pairs_train_fit_leak": len(train_fit_leak),
         "n_real_fake_pairs_straddling_splits": len(straddling),
         "n_real_fake_pairs_same_split": len(same_side),
         "n_real_fake_pairs_train_test_bridge": len(train_test_bridge),
+        "fraction_of_coupled_photos_with_train_fit_leak": (
+            len(train_fit_leak) / len(both_classes) if both_classes else None),
         "fraction_of_coupled_photos_that_leak_across_splits": (
             len(straddling) / len(both_classes) if both_classes else None),
         "interpretation": (
             "n_source_photos_real_and_fake = source photos that contributed BOTH a real and a "
             "fake crop to our sample (the coupling the dHash audit cannot see, since the two "
-            "crops are different face regions). n_real_fake_pairs_straddling_splits = of those, "
-            "how many have the real crop and the fake crop on DIFFERENT split sides -- that "
-            "count IS the direct real<->fake / train<->test leak magnitude. If this is 0 (or "
-            "near it) relative to n_source_photos_real_and_fake, the coupling is present in "
-            "principle but did not materially bridge our actual split; if it is a large "
-            "fraction, headline OpenForensics numbers should be treated as optimistic and a "
-            "group-aware re-extraction is warranted."),
+            "crops are different face regions). "
+            "*** READ n_real_fake_pairs_train_fit_leak, NOT n_real_fake_pairs_straddling_splits, "
+            "AS THE HEADLINE NUMBER. *** train_fit_leak = of the coupled photos, how many have "
+            "one crop actually FIT ON ('train') while the other-label crop is anywhere else "
+            "(val/test/unseen) - this is the only case that is genuine weight-fitting leakage. "
+            "n_real_fake_pairs_straddling_splits (any split label difference, including "
+            "val<->unseen or test<->unseen) is USELESS as a leakage signal whenever one label is "
+            "permanently excluded from train/val/test by design (e.g. an out-of-set generator "
+            "like OpenForensics-fake, always 'unseen') - it will read close to 100% purely "
+            "because of that design, independent of whether group-aware splitting is working "
+            "correctly. Confirmed on this project's real data: 12 coupled photos, "
+            "n_real_fake_pairs_straddling_splits=12/12 (looks alarming) but "
+            "n_real_fake_pairs_train_fit_leak=10/12 (the actual number: 10 of 300, i.e. 3.3%, "
+            "of the out-of-set OpenForensics-fake probe has a same-photo real crop in training)."),
+        "example_train_fit_leak_groups": _examples(train_fit_leak, args.max_examples),
         "example_straddling_groups": _examples(straddling, args.max_examples),
         "example_same_split_groups": _examples(same_side, min(5, args.max_examples)),
     }
@@ -264,9 +308,10 @@ def main(args):
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2)
     logger.info(
-        "OF coupling: %d source photos have both real+fake crops; %d of those STRADDLE the "
-        "split (leak); %d stay on one side -> %s",
-        len(both_classes), len(straddling), len(same_side), args.out)
+        "OF coupling: %d source photos have both real+fake crops; %d have a genuine TRAIN-FIT "
+        "leak (the headline number); %d straddle by the (less meaningful) raw split-label "
+        "definition; %d stay fully on one side -> %s",
+        len(both_classes), len(train_fit_leak), len(straddling), len(same_side), args.out)
 
 
 if __name__ == "__main__":

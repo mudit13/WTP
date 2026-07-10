@@ -351,7 +351,7 @@ def main(args):
     group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
     group_map = io_utils.load_group_map(group_map_paths, logger)
     paths_kept_arr = np.asarray(paths_kept)
-    groups = io_utils.apply_group_map(paths_kept_arr, group_map) if group_map else None
+    groups = io_utils.apply_group_map(paths_kept_arr, group_map, logger=logger) if group_map else None
 
     # ONE seeded stratified split, shared verbatim by both paths. Keyed on full_path (same scheme
     # as finetune_defake_head.py) so the benchmark test set matches DE-FAKE's -> ingesting

@@ -45,7 +45,7 @@ import numpy as np  # noqa: E402
 DEFAULT_CHANNEL_CONFIGS = [[16, 32, 64], [32, 64, 128], [48, 96, 192]]
 
 
-def _build_split(args, config, seed, common_size, augment, hflip, real_set):
+def _build_split(args, config, seed, common_size, augment, hflip, real_set, logger=None):
     """Gather (paths, labels_int, classes, y, tr, va, te) the SAME way train_ganfp_cnn does."""
     if args.sample_dir:
         all_paths, generators = ganfp.scan_sample_dir(args.sample_dir)
@@ -72,8 +72,8 @@ def _build_split(args, config, seed, common_size, augment, hflip, real_set):
     # pairs); see finetune_defake_head.py for details. No-op when no sidecar is found.
     paths_arr = np.asarray(paths)
     group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
-    group_map = io_utils.load_group_map(group_map_paths)
-    groups = io_utils.apply_group_map(paths_arr, group_map) if group_map else None
+    group_map = io_utils.load_group_map(group_map_paths, logger)
+    groups = io_utils.apply_group_map(paths_arr, group_map, logger=logger) if group_map else None
 
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
@@ -165,7 +165,7 @@ def main(args):
     real_set = set((config.get("attribution", {}) or {}).get("real_generators", []))
 
     paths, labels_int, classes, y, tr, va, te = _build_split(
-        args, config, seed, common_size, augment, hflip, real_set)
+        args, config, seed, common_size, augment, hflip, real_set, logger)
     logger.info("Sweep over %d classes: %s (train=%d val=%d test=%d)",
                 len(classes), classes, len(tr), len(va), len(te))
 

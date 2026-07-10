@@ -149,7 +149,7 @@ def main(args):
                 "an unreliable straddle count. Pass --group_map <path to "
                 "openforensics_groups.csv> explicitly to get a trustworthy result outside the "
                 "container.")
-        df = _finetune_splits(args.index, io_utils.load_config(args.config), args.group_map)
+        df = _finetune_splits(args.index, io_utils.load_config(args.config), args.group_map, logger)
 
     of_mask = df[schema.GENERATOR].astype(str).isin(OF_GENERATORS)
     of_df = df[of_mask].copy()

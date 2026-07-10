@@ -33,7 +33,7 @@ def main(args):
     group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)
     group_map = io_utils.load_group_map(group_map_paths, logger)
     paths = df[schema.PATH].astype(str).to_numpy()
-    groups = io_utils.apply_group_map(paths, group_map) if group_map else None
+    groups = io_utils.apply_group_map(paths, group_map, logger=logger) if group_map else None
 
     if df[schema.GENERATOR].value_counts().min() >= 2:
         y = defake_head.encode_labels(df[schema.GENERATOR].astype(str).to_numpy(),

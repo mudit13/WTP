@@ -383,6 +383,18 @@ scientifically reliable evaluation, not maximal accuracy.
   filtered its population first. Two regression tests added
   (`tests/test_defake_head.py::test_group_membership_is_id_based_not_call_population_based` and
   `::test_group_decision_matches_across_differently_filtered_calls`).
+  **Even deeper fix, found on the actual first server run (section 21):** the group-aware split
+  was a complete no-op end to end, because `extract_openforensics.py` (host, required for
+  `/vol1`) recorded the sidecar's `full_path` using the HOST's absolute path prefix, while
+  `build_master_index.py` (container) records the SAME physical files under the CONTAINER's
+  prefix - two different strings for one file, so the exact-match lookup never matched a single
+  row, on either the audit script OR the real training run. `extract_openforensics.py` gained
+  `--record_prefix` to record the container-equivalent path instead; `io_utils.apply_group_map`
+  now loudly warns (`GROUP MAP PREFIX MISMATCH`) whenever this exact failure mode recurs, rather
+  than silently degrading. **Every OpenForensics-inclusive number from the first full run is
+  invalid until the sidecar is repaired (or re-extracted with `--record_prefix`) and every
+  split-dependent stage is re-run** - `n_real_fake_pairs_straddling_splits` must read `0` before
+  trusting anything downstream of it.
 - OpenForensics wiring: reals are added as a TRAINED real class to diversify the narrow real class
   (Dennis's #1 steer), OF-fake is kept out-of-set (unseen manipulation), and the same-photo pairs
   are a strong within-dataset confound control. Consequence to state: OF reals are therefore NOT a

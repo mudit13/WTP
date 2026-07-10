@@ -62,9 +62,23 @@ def _hamming(a, b):
     return bin(a ^ b).count("1")
 
 
-def _finetune_splits(index_csv, config):
+def _finetune_splits(index_csv, config, group_map_paths=None):
     """Reconstruct the in-set train/val/test split as finetune_defake_head.py does; out-of-set
-    generators are tagged `unseen`. Returns a DataFrame with a `split` column."""
+    generators are tagged `unseen`. Returns a DataFrame with a `split` column.
+
+    group_map_paths: explicit sidecar path(s), overriding auto-detection. IMPORTANT: auto-
+    detection (io_utils.default_group_map_paths) builds the sidecar path from
+    config["dataset_root"], which is a CONTAINER-absolute string (e.g. "/pitsec_sose26_topic8/
+    dataset") resolved from configs/paths.env's ${WTP_ROOT} placeholder - that string is the
+    same no matter which machine loads the config, but os.path.exists() checks it against
+    WHATEVER filesystem the CURRENT process sees. Run this script via bare host python3 (e.g.
+    because a sibling script needs a host-only mount like /vol1), and the container-absolute
+    path silently does not exist on the host, so the group map loads empty and this
+    reconstruction falls back to UNGROUPED splitting - not because the real training run (which
+    ran inside the container, where that path DOES resolve) failed to group, but because THIS
+    reconstruction, run from a different machine, could not find the sidecar. Always pass
+    --group_map explicitly (the real host-relative path) when running this script outside the
+    container, or the group-straddle number is not trustworthy."""
     df = pd.read_csv(index_csv)
     generator = df[schema.GENERATOR].astype(str).to_numpy()
     paths = df[schema.PATH].astype(str).to_numpy()
@@ -83,9 +97,9 @@ def _finetune_splits(index_csv, config):
     y = defake_head.encode_labels(gi, classes)
     # Group-aware reconstruction: MUST match finetune_defake_head.py's actual split (including
     # its group_map), or this audit would report a leak the real pipeline already closed (or
-    # miss one it didn't). Auto-loads the same default sidecar; pass a config with a different
-    # dataset_root if that ever changes.
-    group_map = io_utils.load_group_map(io_utils.default_group_map_paths(config))
+    # miss one it didn't). Uses --group_map when given; otherwise auto-detects (see the
+    # docstring above for why auto-detection is unreliable across host/container boundaries).
+    group_map = io_utils.load_group_map(group_map_paths or io_utils.default_group_map_paths(config))
     groups = io_utils.apply_group_map(pi, group_map) if group_map else None
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
@@ -110,6 +124,9 @@ def _index_file_splits(train_csv, test_csv):
 
 def main(args):
     logger = io_utils.setup_logging("audit_split_leakage")
+    if args.group_map:
+        logger.info("Using explicit --group_map (bypassing config-driven auto-detection): %s",
+                   args.group_map)
     if args.mode == "index_files":
         if not (args.train_index and args.test_index):
             raise SystemExit("--train_index and --test_index required for index_files mode")
@@ -117,7 +134,7 @@ def main(args):
     else:
         if not (args.index and args.config):
             raise SystemExit("--index and --config required for finetune mode")
-        df = _finetune_splits(args.index, io_utils.load_config(args.config))
+        df = _finetune_splits(args.index, io_utils.load_config(args.config), args.group_map)
 
     # Group-straddle check: with the group-aware split fix, no group (e.g. an OpenForensics
     # source_image_id shared by a real+fake crop pair) should ever have members on more than
@@ -126,7 +143,7 @@ def main(args):
     group_straddle = {"n_groups_checked": 0, "n_groups_straddling": 0, "examples": []}
     if args.config:
         gm_config = io_utils.load_config(args.config)
-        group_map = io_utils.load_group_map(io_utils.default_group_map_paths(gm_config))
+        group_map = io_utils.load_group_map(args.group_map or io_utils.default_group_map_paths(gm_config))
         if group_map:
             gdf = df.copy()
             gdf["_group"] = io_utils.apply_group_map(
@@ -241,6 +258,17 @@ if __name__ == "__main__":
     parser.add_argument("--index", default=None, help="Index CSV for finetune-split reconstruction")
     parser.add_argument("--train_index", default=None)
     parser.add_argument("--test_index", default=None)
+    parser.add_argument("--group_map", nargs="*", default=None,
+                        help="Explicit path(s) to full_path,source_image_id sidecar CSV(s), "
+                             "overriding config-driven auto-detection. REQUIRED for a "
+                             "trustworthy group_straddle result when running this script "
+                             "outside the container (e.g. on the host): auto-detection builds "
+                             "the sidecar path from config['dataset_root'], which is a "
+                             "container-absolute string that silently does not exist on a "
+                             "different machine, causing a false 'ungrouped' fallback rather "
+                             "than an error. Pass the real path explicitly instead, e.g. "
+                             "dataset/openforensics/openforensics_groups.csv relative to "
+                             "sharedDockerDir on the host.")
     parser.add_argument("--hamming", type=int, default=6,
                         help="Max dHash Hamming distance to flag a near-duplicate (0-64)")
     parser.add_argument("--max_pairs", type=int, default=200,

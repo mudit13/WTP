@@ -61,6 +61,19 @@ def _strat_resample(strat, rng):
     return np.concatenate(parts)
 
 
+def _strat_group_resample(strat, groups, rng):
+    """Cluster bootstrap within true class; repeated derivatives stay together."""
+    parts = []
+    for c in np.unique(strat):
+        class_idx = np.where(strat == c)[0]
+        class_groups = np.asarray(groups)[class_idx]
+        unique_groups = np.unique(class_groups)
+        sampled_groups = rng.choice(unique_groups, size=len(unique_groups), replace=True)
+        for group in sampled_groups:
+            parts.append(class_idx[class_groups == group])
+    return np.concatenate(parts)
+
+
 def bootstrap_detection(df, n_boot, seed, logger):
     y_true = schema.is_fake_label(df[schema.LABEL]).astype(int).to_numpy()
     y_pred = schema.is_fake_predict(df[schema.DEFAKE_PREDICT]).astype(int).to_numpy()
@@ -105,7 +118,7 @@ def bootstrap_detection(df, n_boot, seed, logger):
             "overall": overall, "per_generator": per_gen}
 
 
-def bootstrap_attribution(df, n_boot, seed, subset, true_col, pred_col, logger):
+def bootstrap_attribution(df, n_boot, seed, subset, true_col, pred_col, group_col, logger):
     d = df.copy()
     if "in_set" in d.columns and subset != "all":
         mask = d["in_set"].astype(str).str.lower() == "true"
@@ -116,13 +129,18 @@ def bootstrap_attribution(df, n_boot, seed, subset, true_col, pred_col, logger):
     y_pred = d[pred_col].astype(str).to_numpy()
     labels = sorted(set(y_true.tolist()) | set(y_pred.tolist()))
     rng = np.random.default_rng(seed)
+    groups = d[group_col].astype(str).to_numpy() if group_col in d.columns else None
+    if groups is not None:
+        logger.info("Attribution bootstrap clustered by %s (%d groups)",
+                    group_col, len(np.unique(groups)))
 
     full = metrics.attribution_metrics(y_true, y_pred, labels=labels)
     keys = ["top1_accuracy", "macro_f1", "balanced_accuracy"]
     dist = {k: [] for k in keys}
     pc_dist = {str(l): [] for l in labels}
     for _ in range(n_boot):
-        idx = _strat_resample(y_true, rng)
+        idx = (_strat_group_resample(y_true, groups, rng)
+               if groups is not None else _strat_resample(y_true, rng))
         m = metrics.attribution_metrics(y_true[idx], y_pred[idx], labels=labels)
         for k in keys:
             dist[k].append(m[k])
@@ -140,6 +158,7 @@ def bootstrap_attribution(df, n_boot, seed, subset, true_col, pred_col, logger):
     logger.info("Attribution CIs (subset=%s): %s", subset,
                 json.dumps({k: overall[k] for k in keys}))
     return {"mode": "attribution", "subset": subset, "n_boot": n_boot, "seed": seed,
+            "group_col": group_col if groups is not None else None,
             "overall": overall, "per_class": per_class}
 
 
@@ -165,7 +184,7 @@ def main(args):
         out = bootstrap_detection(df, args.n_boot, args.seed, logger)
     else:
         out = bootstrap_attribution(df, args.n_boot, args.seed, args.subset,
-                                    args.true_col, args.pred_col, logger)
+                                    args.true_col, args.pred_col, args.group_col, logger)
 
     io_utils.ensure_dir(os.path.dirname(os.path.abspath(args.out)))
     with open(args.out, "w", encoding="utf-8") as fh:
@@ -182,6 +201,8 @@ if __name__ == "__main__":
                         help="Attribution only: which population to score (uses the in_set column).")
     parser.add_argument("--true_col", default="true_generator")
     parser.add_argument("--pred_col", default="pred_generator")
+    parser.add_argument("--group_col", default="group_id",
+                        help="Attribution cluster column; used when present, otherwise image-level.")
     parser.add_argument("--n_boot", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", required=True, help="Output JSON path")

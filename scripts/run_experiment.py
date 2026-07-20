@@ -12,18 +12,24 @@ with $WTP_PY_DEFAKE (falling back to this interpreter), matching PIPELINE.md.
 
 Examples:
   # headline confound-controlled run (aspect variant, JPEG-aug on), just print the plan:
-  python scripts/run_experiment.py --dry_run
+  python scripts/run_experiment.py --dry_run --run_id eightway_v1
   # actually run only the attribution + out-of-set stages on the aspect variant:
-  python scripts/run_experiment.py --stages attribution,oos
+  python scripts/run_experiment.py --run_id eightway_v1 --resume --stages attribution,oos
   # raw geometry baseline (scaled variant, no JPEG aug) for the confound comparison:
-  python scripts/run_experiment.py --variant scaled --jpeg_aug off --stages attribution,oos
+  python scripts/run_experiment.py --run_id eightway_raw_v1 --variant scaled --jpeg_aug off \
+      --stages attribution,oos
   # include the heavy stages too:
-  python scripts/run_experiment.py --stages index,variants,confound,detect,dct,attribution,oos,ganfp,robustness,aggregate
+  python scripts/run_experiment.py --run_id eightway_v1 \
+      --stages index,variants,confound,detect,dct,attribution,cascade,oos,aggregate
 """
 import argparse
+import hashlib
+import json
 import os
+import re
 import subprocess
 import sys
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import io_utils  # noqa: E402
@@ -33,6 +39,63 @@ from lib import io_utils  # noqa: E402
 from robustness_perturb import _perturbations as _perturbation_specs  # noqa: E402
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+
+
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _declared_fake_classes(config_path):
+    """Read only the placeholder-free attribution block; safe for local dry runs."""
+    import yaml
+    with open(config_path, "r", encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    attr = raw.get("attribution", {}) or {}
+    return list(attr.get("fake_generators", []))
+
+
+def _prepare_run_dir(c, args):
+    """Create or validate an immutable run directory and provenance manifest."""
+    manifest_path = os.path.join(c.results, "run_manifest.json")
+    config_hash = _sha256(c.cfg)
+    if os.path.exists(c.results) and not args.resume:
+        raise SystemExit("Run directory already exists: %s. Choose a new --run_id or pass "
+                         "--resume to continue the SAME config." % c.results)
+    if args.resume:
+        if not os.path.exists(manifest_path):
+            raise SystemExit("--resume requires an existing %s" % manifest_path)
+        with open(manifest_path, encoding="utf-8") as fh:
+            previous = json.load(fh)
+        if previous.get("config_sha256") != config_hash:
+            raise SystemExit("Refusing to resume: config hash differs from run_manifest.json")
+        return
+
+    io_utils.ensure_dir(c.results)
+    try:
+        git_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(io_utils.repo_root()),
+            universal_newlines=True).strip()
+    except Exception:  # noqa: BLE001
+        git_commit = "<unavailable>"
+    manifest = {
+        "run_id": c.run_id,
+        "created_at": datetime.now().isoformat(),
+        "git_commit": git_commit,
+        "config_path": os.path.abspath(c.cfg),
+        "config_sha256": config_hash,
+        "variant": c.variant,
+        "jpeg_aug": c.jpeg_aug,
+        "device": c.device,
+        "declared_fake_classes": _declared_fake_classes(c.cfg),
+        "primary_attribution": "fake_only",
+        "auxiliary_attribution": "joint",
+    }
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, indent=2)
 
 
 def _perturbation_names(config_path):
@@ -53,10 +116,10 @@ def _perturbation_names(config_path):
 
 
 ALL_STAGES = ["index", "variants", "confound", "detect", "dct",
-              "attribution", "oos", "ganfp", "robustness", "aggregate"]
+              "attribution", "cascade", "oos", "ganfp", "robustness", "aggregate"]
 # Default = the confound-controlled headline path. ganfp + robustness are heavy -> opt in.
 DEFAULT_STAGES = ["index", "variants", "confound", "detect", "dct",
-                  "attribution", "oos", "aggregate"]
+                  "attribution", "cascade", "oos", "aggregate"]
 
 
 class Ctx:
@@ -68,27 +131,40 @@ class Ctx:
         self.variant = args.variant
         self.jpeg_aug = args.jpeg_aug            # "on" | "off"
         self.device = args.device
-        self.results = args.results_dir.rstrip("/")
+        self.run_id = args.run_id or ("dry-run" if args.dry_run else None)
+        if self.run_id and not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", self.run_id):
+            raise SystemExit("--run_id must contain only letters, numbers, dot, underscore, dash")
+        results_base = args.results_dir.rstrip("/")
+        self.results = (f"{results_base}/{self.run_id}" if self.run_id else results_base)
         root = os.environ.get("WTP_ROOT", "/pitsec_sose26_topic8")
         self.ds = (args.dataset_dir or os.path.join(root, "dataset")).rstrip("/")
 
         self.augtag = "jpegaug" if self.jpeg_aug == "on" else "raw"
         self.index = f"{self.results}/index_{self.variant}.csv"
         self.master = f"{self.ds}/master_metadata.csv"
-        self.pred = f"{self.ds}/defake_predictions_{self.variant}.csv"
+        pred_tag = self.run_id or "legacy"
+        self.pred = f"{self.ds}/defake_predictions_{pred_tag}_{self.variant}.csv"
         # Captions source for the faithful DE-FAKE 1024-dim image+text features. Prefer an
         # explicit override, then a project-wide merged file if it exists, else the same-variant
         # detect output (created by the `detect` stage; its full_paths match this index, so
         # captions join cleanly). This avoids hard-coding a `defake_predictions_all.csv` that
         # may not exist on a fresh setup (which crashed the fine-tune while reading it).
-        all_captions = f"{self.ds}/defake_predictions_all.csv"
-        self.captions = args.captions_csv or (
-            all_captions if os.path.exists(all_captions) else self.pred)
-        self.feats = f"{self.results}/clip_feats_{self.variant}_{self.augtag}.npz"
-        self.finetune_out = f"{self.results}/finetune_{self.variant}_{self.augtag}/"
-        self.attr_eval_out = f"{self.results}/attr_eval_{self.variant}/"
-        dctaug = "_jpegaug" if self.jpeg_aug == "on" else ""
-        self.dct_feats = f"{self.results}/dct_features_{self.variant}{dctaug}.npz"
+        self.captions = args.captions_csv or self.pred
+        # This path is always the CLEAN eval cache. Training-only JPEG features are written to
+        # features_cache.training_aug_cache_path(self.feats) by the trainers.
+        self.feats = f"{self.results}/clip_feats_{self.variant}_clean.npz"
+        self.finetune_8_out = f"{self.results}/finetune_8way_{self.variant}_{self.augtag}/"
+        self.attr_eval_8_out = f"{self.results}/attr_eval_8way_{self.variant}/"
+        self.finetune_9_out = f"{self.results}/finetune_9way_{self.variant}_{self.augtag}/"
+        self.attr_eval_9_out = f"{self.results}/attr_eval_9way_{self.variant}/"
+        # Primary aliases used by robustness/GAN-fp compatibility paths.
+        self.finetune_out = self.finetune_8_out
+        self.attr_eval_out = self.attr_eval_8_out
+        self.cascade_attr = f"{self.results}/cascade/attribution_test.csv"
+        self.dct_feats = f"{self.results}/dct_features_{self.variant}_clean.npz"
+        self.dct_train_feats = (
+            f"{self.results}/dct_features_{self.variant}_train_jpegaug.npz"
+            if self.jpeg_aug == "on" else self.dct_feats)
         self.dct_svm_out = f"{self.results}/dct_svm_{self.variant}/"
         self.robust_dir = f"{self.results}/robust"
         # Shared train/test split (content-stable, group-aware) - one location so every stage
@@ -97,6 +173,7 @@ class Ctx:
         self.train_index = f"{self.results}/train_index.csv"
         self.test_index = f"{self.results}/test_index.csv"
         self.perturbations = _perturbation_names(self.cfg)
+        self.fake_classes = _declared_fake_classes(self.cfg)
 
     def s(self, name):
         return os.path.join(SCRIPTS, name)
@@ -136,7 +213,7 @@ def stage_confound(c):
 
 def stage_detect(c):
     # run_defake_batch.py mirrors DE-FAKE test.py (squash to 224); feed it the aspect variant
-    # index via env to geometry-control detection (see PIPELINE.md 3a).
+    # index via env to geometry-control detection (see docs/PIPELINE.md).
     env = dict(os.environ, WTP_MASTER_CSV=c.index, WTP_PRED_CSV=c.pred)
     return [
         _step("DE-FAKE detection inference", [c.py, c.s("run_defake_batch.py")], env=env),
@@ -146,10 +223,7 @@ def stage_detect(c):
 
 
 def stage_dct(c):
-    extract = [c.py, c.s("dct_extract_features.py"), "--index", c.index, "--out", c.dct_feats]
-    if c.jpeg_aug == "on":
-        extract.append("--jpeg_aug")
-    return [
+    steps = [
         # MUST run before the "random split" SVM training below: dct_svm.py --test_index
         # matches the SVM's train/test boundary to this file exactly (leakage fix - the
         # robustness pipeline used to score the SVM partly on its own training rows because it
@@ -157,48 +231,84 @@ def stage_dct(c):
         # matters here, unlike the other steps in this file.
         _step("Make split (train/test index)", [c.py, c.s("make_split.py"), "--config", c.cfg,
               "--index", c.index, "--train_out", c.train_index, "--test_out", c.test_index]),
-        _step("DCT feature extraction", extract),
+        _step("DCT clean feature extraction",
+              [c.py, c.s("dct_extract_features.py"), "--index", c.index,
+               "--out", c.dct_feats]),
+    ]
+    if c.jpeg_aug == "on":
+        steps.append(_step(
+            "DCT training-only JPEG feature extraction",
+            [c.py, c.s("dct_extract_features.py"), "--index", c.index,
+             "--out", c.dct_train_feats, "--jpeg_aug"]))
+    train_features = (["--train_features", c.dct_train_feats]
+                      if c.dct_train_feats != c.dct_feats else [])
+    steps += [
         _step("DCT-SVM (random split, test_index-safe)", [c.py, c.s("dct_svm.py"),
               "--features", c.dct_feats, "--out_dir", c.dct_svm_out, "--mode", "random",
-              "--test_index", c.test_index]),
-        _step("DCT-SVM (out-of-set)", [c.py, c.s("dct_svm.py"), "--features", c.dct_feats,
+              "--test_index", c.test_index,
+              "--exclude_train_generators", "OpenForensics-fake"] + train_features),
+        _step("DCT-SVM (OpenForensics-fake challenge)", [c.py, c.s("dct_svm.py"),
+              "--features", c.dct_feats,
               "--out_dir", f"{c.results}/dct_svm_{c.variant}_oos/", "--mode", "out_of_set",
-              "--holdout_generators", "FLUX.1-schnell", "StyleGAN3-FFHQ"]),
+              "--holdout_generators", "OpenForensics-fake",
+              "--config", c.cfg, "--index", c.index, "--require_group_map"] + train_features),
     ]
+    return steps
 
 
 def stage_attribution(c):
     return [
-        _step("Fine-tune DE-FAKE head", [c.py, c.s("finetune_defake_head.py"), "--config", c.cfg,
-              "--index", c.index, "--jpeg_aug", c.jpeg_aug, "--out_dir", c.finetune_out,
+        _step("Fine-tune DE-FAKE head (primary 8-way fake-only)",
+              [c.py, c.s("finetune_defake_head.py"), "--config", c.cfg,
+              "--index", c.index, "--class_mode", "fake_only",
+              "--jpeg_aug", c.jpeg_aug, "--out_dir", c.finetune_8_out,
               "--features_cache", c.feats, "--captions_csv", c.captions, "--device", c.device]),
-        _step("Evaluate attribution", [c.py, c.s("eval_defake_attribution.py"), "--config", c.cfg,
-              "--predictions", f"{c.finetune_out}finetune_per_image.csv",
-              "--out_dir", c.attr_eval_out, "--pred_col", "pred_generator"]),
-        # Leave-NEW-CLASS-out (NOT full LOGO): holds out only the two finetune_new_classes
-        # (generators the regular head IS otherwise trained on). Kept for continuity with the
-        # already-reported FLUX/StyleGAN3 diffusion-vs-GAN-collapse numbers - see
-        # report/REPORT_OUTLINE.md section 8's naming caveat.
-        _step("Leave-new-class-out (FLUX, StyleGAN3)", [c.py, c.s("leave_one_generator_out.py"),
-              "--config", c.cfg, "--index", c.index, "--jpeg_aug", c.jpeg_aug,
-              "--out_dir", f"{c.results}/logo_{c.variant}_{c.augtag}/",
+        _step("Evaluate attribution (primary 8-way)",
+              [c.py, c.s("eval_defake_attribution.py"), "--config", c.cfg,
+              "--class_mode", "fake_only",
+              "--predictions", f"{c.finetune_8_out}finetune_per_image.csv",
+              "--out_dir", c.attr_eval_8_out, "--pred_col", "pred_generator"]),
+        _step("Fine-tune DE-FAKE head (auxiliary 9-way with merged Real)",
+              [c.py, c.s("finetune_defake_head.py"), "--config", c.cfg,
+              "--index", c.index, "--class_mode", "joint",
+              "--jpeg_aug", c.jpeg_aug, "--out_dir", c.finetune_9_out,
               "--features_cache", c.feats, "--captions_csv", c.captions,
-              "--targets", "FLUX.1-schnell", "StyleGAN3-FFHQ"]),
-        # Proper LOGO: hold out EVERY trained class in turn (reals included) - the actual
-        # leave-one-generator-out sweep, report/REPORT_OUTLINE.md section 8b.
-        _step("Leave-one-generator-out (full sweep, --all_trained_classes)",
-              [c.py, c.s("leave_one_generator_out.py"), "--config", c.cfg, "--index", c.index,
-              "--jpeg_aug", c.jpeg_aug, "--out_dir", f"{c.results}/logo_full_{c.variant}_{c.augtag}/",
+              "--device", c.device]),
+        _step("Evaluate attribution (auxiliary 9-way)",
+              [c.py, c.s("eval_defake_attribution.py"), "--config", c.cfg,
+              "--class_mode", "joint",
+              "--predictions", f"{c.finetune_9_out}finetune_per_image.csv",
+              "--out_dir", c.attr_eval_9_out, "--pred_col", "pred_generator"]),
+        _step("LOGO (8 fake generators; strict declared-population filtering)",
+              [c.py, c.s("leave_one_generator_out.py"), "--config", c.cfg,
+              "--index", c.index, "--class_mode", "fake_only",
+              "--jpeg_aug", c.jpeg_aug,
+              "--out_dir", f"{c.results}/logo_8way_{c.variant}_{c.augtag}/",
               "--features_cache", c.feats, "--captions_csv", c.captions,
-              "--all_trained_classes"]),
+              "--device", c.device]),
+    ]
+
+
+def stage_cascade(c):
+    return [
+        _step("Predict primary 8-way head on shared test index",
+              [c.py, c.s("predict_defake_head.py"), "--config", c.cfg,
+               "--head", f"{c.finetune_8_out}defake_head.pt",
+               "--index", c.test_index, "--captions_csv", c.captions,
+               "--device", c.device, "--out", c.cascade_attr]),
+        _step("Evaluate DCT -> DE-FAKE cascade",
+              [c.py, c.s("evaluate_cascade.py"), "--config", c.cfg,
+               "--dct_predictions", f"{c.dct_svm_out}dct_per_image.csv",
+               "--attribution_predictions", c.cascade_attr,
+               "--out_dir", f"{c.results}/cascade/"]),
     ]
 
 
 def stage_oos(c):
     return [_step("Out-of-set analysis", [c.py, c.s("out_of_set_analysis.py"), "--config", c.cfg,
             "--out_dir", f"{c.results}/oos_{c.variant}/", "--inputs",
-            f"finetuned={c.finetune_out}finetune_per_image.csv",
-            f"attr_eval={c.attr_eval_out}attribution_per_image.csv"])]
+            f"eight_way={c.finetune_8_out}finetune_per_image.csv",
+            f"nine_way={c.finetune_9_out}finetune_per_image.csv"])]
 
 
 def stage_ganfp(c):
@@ -212,17 +322,19 @@ def stage_ganfp(c):
     bench_cmd = [c.py, c.s("benchmark_attribution.py"), "--config", c.cfg, "--index", c.index,
                  "--out_dir", f"{c.results}/ganfp_benchmark_{c.variant}/",
                  "--defake_csv", f"{c.finetune_out}finetune_per_image.csv",
-                 "--device", c.device]
+                 "--device", c.device, "--classes"] + c.fake_classes
     if c.jpeg_aug == "on":
         bench_cmd.append("--jpeg_aug")
     return [
         _step("GAN-fp features + MLP (path A)", [c.py, c.s("train_ganfp.py"), "--config", c.cfg,
               "--index", c.index, "--jpeg_aug", c.jpeg_aug, "--device", c.device,
               "--features_cache", f"{c.results}/ganfp_feats_{c.variant}.npz",
-              "--out_dir", f"{c.results}/ganfp_feature_{c.variant}/"]),
+              "--out_dir", f"{c.results}/ganfp_feature_{c.variant}/",
+              "--classes"] + c.fake_classes),
         _step("GAN-fp CNN (path B)", [c.py, c.s("train_ganfp_cnn.py"), "--config", c.cfg,
               "--index", c.index, "--jpeg_aug", c.jpeg_aug, "--device", c.device,
-              "--out_dir", f"{c.results}/ganfp_cnn_{c.variant}/"]),
+              "--out_dir", f"{c.results}/ganfp_cnn_{c.variant}/",
+              "--classes"] + c.fake_classes),
         _step("GAN-fp benchmark vs DE-FAKE", bench_cmd),
     ]
 
@@ -253,8 +365,7 @@ def stage_robustness(c):
     # DCT clean baseline (predict with the trained SVM on the clean test features).
     dct_clean_feats = f"{rd}/dct_clean.npz"
     steps.append(_step("DCT clean features", [c.py, c.s("dct_extract_features.py"),
-                 "--index", test_idx, "--out", dct_clean_feats]
-                 + (["--jpeg_aug"] if c.jpeg_aug == "on" else [])))
+                 "--index", test_idx, "--out", dct_clean_feats]))
     steps.append(_step("DCT clean predict", [c.py, c.s("dct_svm.py"), "--mode", "predict",
                  "--model", f"{c.dct_svm_out}dct_svm.joblib", "--features", dct_clean_feats,
                  "--out_dir", f"{rd}/dct_clean/"]))
@@ -276,8 +387,7 @@ def stage_robustness(c):
         # DCT-SVM
         dfeat = f"{rd}/dct_{name}.npz"
         steps.append(_step(f"[{name}] DCT features", [c.py, c.s("dct_extract_features.py"),
-                     "--index", pidx, "--out", dfeat]
-                     + (["--jpeg_aug"] if c.jpeg_aug == "on" else [])))
+                     "--index", pidx, "--out", dfeat]))
         steps.append(_step(f"[{name}] DCT predict", [c.py, c.s("dct_svm.py"), "--mode", "predict",
                      "--model", f"{c.dct_svm_out}dct_svm.joblib", "--features", dfeat,
                      "--out_dir", f"{rd}/dct_{name}/"]))
@@ -308,6 +418,7 @@ def stage_aggregate(c):
 BUILDERS = {
     "index": stage_index, "variants": stage_variants, "confound": stage_confound,
     "detect": stage_detect, "dct": stage_dct, "attribution": stage_attribution,
+    "cascade": stage_cascade,
     "oos": stage_oos, "ganfp": stage_ganfp, "robustness": stage_robustness,
     "aggregate": stage_aggregate,
 }
@@ -331,6 +442,9 @@ def _check_prereqs(c, stages):
     need("robustness", "dct", dct_model, "DCT-SVM-robustness")
     need("robustness", "detect", c.pred, "captions/detect-robustness")
     need("ganfp", "attribution", finetune_csv, "GAN-fp vs DE-FAKE comparison")
+    need("cascade", "attribution", head, "cascade attribution")
+    need("cascade", "dct", f"{c.dct_svm_out}dct_per_image.csv", "cascade detection")
+    need("cascade", "dct", c.test_index, "cascade shared test index")
 
     if missing:
         raise SystemExit(
@@ -347,18 +461,22 @@ def main(args):
         raise SystemExit("Unknown stage(s): %s. Valid: %s" % (unknown, ", ".join(ALL_STAGES)))
 
     c = Ctx(args)
+    if not args.dry_run and not args.run_id:
+        raise SystemExit("A non-dry run requires --run_id (e.g. 2026-07-20_eightway_v1) "
+                         "so results cannot mix with legacy outputs.")
+    if not args.dry_run:
+        _prepare_run_dir(c, args)
     if not args.dry_run:
         _check_prereqs(c, stages)
     logger.info("Variant=%s jpeg_aug=%s device=%s", c.variant, c.jpeg_aug, c.device)
     logger.info("Interpreter=%s  dataset=%s  results=%s", c.py, c.ds, c.results)
     logger.info("Stages: %s%s", ", ".join(stages), "  [DRY RUN]" if args.dry_run else "")
+    logger.info("Attribution plan: primary=fake_only %s; auxiliary=joint (+ merged Real)",
+                _declared_fake_classes(c.cfg))
 
     steps = []
     for st in stages:
         steps.extend(BUILDERS[st](c))
-
-    if not args.dry_run:
-        io_utils.ensure_dir(c.results)
 
     failures = []
     for i, step in enumerate(steps, 1):
@@ -402,6 +520,10 @@ if __name__ == "__main__":
     p.add_argument("--stages", default=",".join(DEFAULT_STAGES),
                    help="Comma list. Valid: " + ", ".join(ALL_STAGES))
     p.add_argument("--results_dir", default="results")
+    p.add_argument("--run_id", default=os.environ.get("WTP_RUN_ID"),
+                   help="Immutable run tag under --results_dir; required for execution.")
+    p.add_argument("--resume", action="store_true",
+                   help="Resume an existing run_id only when its config hash matches.")
     p.add_argument("--dataset_dir", default=None,
                    help="Dataset root (default: $WTP_ROOT/dataset).")
     p.add_argument("--python", default=None,

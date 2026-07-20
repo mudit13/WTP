@@ -133,6 +133,33 @@ def _hash_unit(key: str, seed: int) -> float:
     return int(h[:16], 16) / float(1 << 64)
 
 
+def assert_no_group_straddle(groups: np.ndarray, split_indices: dict,
+                             keys: np.ndarray = None) -> int:
+    """Assert that no explicit source group occurs in more than one named split.
+
+    Returns the number of explicit groups checked. Singleton fallbacks (`group == key`) are
+    ignored because they do not represent known coupling.
+    """
+    if groups is None:
+        return 0
+    groups = np.asarray([str(g) for g in groups])
+    has_keys = keys is not None
+    keys = (np.asarray([str(k) for k in keys]) if has_keys
+            else np.asarray([""] * len(groups)))
+    seen = {}
+    for split_name, indices in split_indices.items():
+        for i in np.asarray(indices, dtype=int):
+            group = groups[i]
+            if has_keys and group == keys[i]:
+                continue
+            prior = seen.get(group)
+            if prior is not None and prior != split_name:
+                raise AssertionError(
+                    "Source group %r straddles %s and %s" % (group, prior, split_name))
+            seen[group] = split_name
+    return len(seen)
+
+
 def _hash_stratified_split(y: np.ndarray, keys: np.ndarray, test_size: float,
                            val_size: float, seed: int, groups: np.ndarray = None
                            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

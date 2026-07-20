@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """
-Phase E: fine-tune the DE-FAKE attribution head on frozen CLIP features to ADD the
-out-of-set generators (FLUX, StyleGAN3) as proper classes, instead of forcing them into
-the pretrained label space.
+Fine-tune the DE-FAKE attribution head on frozen CLIP features.
 
 Pipeline:
   1. Build/cache CLIP image embeddings for an index (master_metadata.csv or a variant index).
-  2. Define the TRAINED class space from config = reals present + (in_set_generators UNION
-     finetune_new_classes). Generators outside that set are treated as genuinely UNSEEN: not
-     trained, only force-scored later. (Override the whole set with --classes.)
+  2. Primary mode: exactly eight configured fake generators. Joint mode: the same eight plus
+     one source-balanced merged Real class. OpenForensics-fake remains test-only in both.
   3. Content-stable (path-hashed) stratified train/val/test split; train a small MLP head
      (CLIP frozen), selecting the checkpoint by BALANCED val accuracy.
   4. Report attribution metrics + confusion matrix on the held-out test split.
@@ -27,7 +24,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import io_utils, metrics, features_cache, defake_head, schema  # noqa: E402
+from lib import (attribution_taxonomy, defake_head, features_cache, io_utils,
+                 metrics, schema)  # noqa: E402
 
 import numpy as np  # noqa: E402
 
@@ -48,40 +46,73 @@ def main(args):
     qrange = tuple(aug_cfg.get("jpeg_quality_range", [30, 100]))
     logger.info("JPEG augmentation: %s (q %s)", jpeg_aug, list(qrange))
 
+    # Keep validation/test/OOS CLEAN. When JPEG control is enabled, build a companion feature
+    # matrix for training rows only; the old pipeline augmented every row before splitting,
+    # inadvertently evaluating on augmented test images despite calling this "training-time".
     X, generator, label, paths = features_cache.build_features(
         args.index, args.features_cache, device=args.device,
         force=args.recompute_features, captions_csv=args.captions_csv,
-        jpeg_aug=jpeg_aug, jpeg_quality_range=qrange, seed=seed)
+        jpeg_aug=False, jpeg_quality_range=qrange, seed=seed)
+    X_fit = X
+    if jpeg_aug:
+        X_fit, gen_aug, label_aug, paths_aug = features_cache.build_features(
+            args.index, features_cache.training_aug_cache_path(args.features_cache),
+            device=args.device, force=args.recompute_features,
+            captions_csv=args.captions_csv, jpeg_aug=True,
+            jpeg_quality_range=qrange, seed=seed)
+        if not (np.array_equal(generator, gen_aug)
+                and np.array_equal(label, label_aug)
+                and np.array_equal(paths, paths_aug)):
+            raise SystemExit("Clean and training-augmentation feature rows do not align.")
     logger.info("Features: %s, classes present: %s", X.shape, sorted(set(generator)))
 
-    # Class space. Default = reals present + the configured TRAINED fake set
-    # (attribution.in_set_generators UNION attribution.finetune_new_classes). Any other
-    # generator in the index is treated as GENUINELY UNSEEN: it is NOT trained, only
-    # force-scored afterwards for the out-of-set analysis. This keeps the in-set/out-of-set
-    # contract honest instead of silently turning every generator present into a trained class.
-    attr = config.get("attribution", {}) or {}
-    real_generators = set(attr.get("real_generators", []))
-    present = set(generator)
+    # Primary = eight fake generators only. Optional joint mode adds ONE merged Real class,
+    # sampled deterministically and source-balanced. OpenForensics-fake is OOS in both modes.
+    mode = attribution_taxonomy.class_mode(config, args.class_mode)
+    real_generators = set(attribution_taxonomy.real_generators(config))
+    mapped_generator = attribution_taxonomy.remap_reals(generator, config, mode)
     if args.classes:
-        classes = sorted(set(args.classes))
+        classes = list(dict.fromkeys(args.classes))
+        in_mask = np.isin(mapped_generator, classes)
+        oos_mask = np.isin(
+            generator, attribution_taxonomy.out_of_set_generators(config))
+        population = {
+            "mode": mode,
+            "real_mask": np.isin(generator, list(real_generators)) & in_mask,
+            "fake_classes": [c for c in classes
+                             if c != attribution_taxonomy.real_class_name(config)],
+        }
     else:
-        trained_fakes = list(dict.fromkeys(
-            list(attr.get("in_set_generators", [])) + list(attr.get("finetune_new_classes", []))))
-        allowed = real_generators | set(trained_fakes)
-        classes = sorted(g for g in present if g in allowed)
+        try:
+            population = attribution_taxonomy.prepare_population(
+                generator, paths, config, mode=mode, seed=seed,
+                require_all_fakes=not args.allow_missing_fake_classes)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        classes = population["classes"]
+        in_mask = population["train_mask"]
+        oos_mask = population["oos_mask"]
+        mapped_generator = population["mapped_generators"]
     class_set = set(classes)
     if not class_set:
         raise SystemExit("Empty class space; check --classes or config.attribution lists.")
+    if np.any(in_mask & oos_mask):
+        leaked = sorted(set(generator[in_mask & oos_mask]))
+        raise SystemExit("Out-of-set generator(s) entered the training population: %s"
+                         % ", ".join(leaked))
 
-    in_mask = np.array([g in class_set for g in generator])
-    unseen_mask = ~in_mask
-    unseen_present = sorted(set(generator[unseen_mask]))
+    unseen_present = sorted(set(generator[oos_mask]))
     if unseen_present:
         logger.warning("Genuinely-unseen generators in index (NOT trained; force-scored for "
                        "the out-of-set analysis): %s", unseen_present)
-    logger.info("Training over %d classes: %s", len(classes), classes)
+    excluded = ~(in_mask | oos_mask)
+    logger.info("Class mode=%s; training over %d classes: %s", mode, len(classes), classes)
+    logger.info("Population: train=%d oos=%d excluded=%d (merged-real selected=%d)",
+                int(in_mask.sum()), int(oos_mask.sum()), int(excluded.sum()),
+                int(population["real_mask"].sum()))
 
-    Xi, gi, pi = X[in_mask], generator[in_mask], paths[in_mask]
+    Xi, Xi_fit, gi, pi = (
+        X[in_mask], X_fit[in_mask], mapped_generator[in_mask], paths[in_mask])
     y = defake_head.encode_labels(gi, classes)
 
     # Group-aware split: keep every crop sharing a source (e.g. an OpenForensics source photo's
@@ -103,12 +134,15 @@ def main(args):
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
         val_size=config.get("val_size", 0.1), seed=seed, keys=pi, groups=groups)
+    n_checked = defake_head.assert_no_group_straddle(
+        groups, {"train": tr, "val": va, "test": te}, keys=pi)
+    logger.info("Post-split group assertion passed (%d explicit groups)", n_checked)
     logger.info("Split sizes: train=%d val=%d test=%d", len(tr), len(va), len(te))
 
     cw = defake_head.compute_class_weights(y[tr], len(classes))
     head = defake_head._MLPHead(in_dim=Xi.shape[1], num_classes=len(classes),
                                 device=args.device, seed=seed)
-    head.fit(Xi[tr], y[tr], Xi[va], y[va], epochs=args.epochs, lr=args.lr,
+    head.fit(Xi_fit[tr], y[tr], Xi[va], y[va], epochs=args.epochs, lr=args.lr,
              class_weights=cw, logger=logger)
 
     proba = head.predict_proba(Xi[te])
@@ -117,7 +151,8 @@ def main(args):
     y_pred_names = [classes[i] for i in pred]
     res = metrics.attribution_metrics(y_true_names, y_pred_names, classes)
     metrics.save_confusion_matrix(
-        np.array(res["confusion_matrix"]), res["labels"],
+        np.array(res["confusion_matrix"]),
+        attribution_taxonomy.display_names(config, res["labels"]),
         png_path=os.path.join(args.out_dir, "cm_finetuned_test.png"),
         csv_path=os.path.join(args.out_dir, "cm_finetuned_test.csv"),
         title="Fine-tuned DE-FAKE head (test)", normalize=True)
@@ -125,8 +160,14 @@ def main(args):
                 res["top1_accuracy"], res["macro_f1"], res["balanced_accuracy"])
 
     with open(os.path.join(args.out_dir, "finetune_metrics.json"), "w", encoding="utf-8") as fh:
-        json.dump({"classes": classes,
-                   "trained_fake_classes": sorted(class_set - real_generators),
+        json.dump({"class_mode": mode,
+                   "classes": classes,
+                   "trained_fake_classes": population["fake_classes"],
+                   "merged_real_class": (attribution_taxonomy.real_class_name(config)
+                                         if mode == attribution_taxonomy.JOINT else None),
+                   "n_train_population": int(in_mask.sum()),
+                   "n_oos_population": int(oos_mask.sum()),
+                   "n_excluded_population": int(excluded.sum()),
                    "unseen_generators": unseen_present,
                    "test": res}, fh, indent=2)
 
@@ -142,17 +183,22 @@ def main(args):
         "pred_generator": y_pred_names,
         "confidence": proba.max(axis=1),
         "entropy": ent,
+        "group_id": (groups[te] if groups is not None else pi[te]),
         "in_set": True,
     })]
-    if unseen_mask.any():
-        proba_u = head.predict_proba(X[unseen_mask])
+    if oos_mask.any():
+        proba_u = head.predict_proba(X[oos_mask])
         pred_u = [classes[i] for i in proba_u.argmax(axis=1)]
         rows_out = pd.DataFrame({
-            schema.PATH: paths[unseen_mask],
-            "true_generator": generator[unseen_mask],
+            schema.PATH: paths[oos_mask],
+            "true_generator": generator[oos_mask],
             "pred_generator": pred_u,
             "confidence": proba_u.max(axis=1),
             "entropy": metrics.predictive_entropy(proba_u),
+            "group_id": (
+                io_utils.apply_group_map_with_lookup(
+                    paths[oos_mask], lookup_map, group_map, logger=logger)
+                if group_map else paths[oos_mask]),
             "in_set": False,
         })
         rows_out.to_csv(os.path.join(args.out_dir, "finetune_unseen_per_image.csv"), index=False)
@@ -161,7 +207,7 @@ def main(args):
     export.to_csv(os.path.join(args.out_dir, "finetune_per_image.csv"), index=False)
     head.save(os.path.join(args.out_dir, "defake_head.pt"), classes)
     logger.info("Saved head + per-image predictions (in-set test=%d, unseen=%d) to %s",
-                len(te), int(unseen_mask.sum()), args.out_dir)
+                len(te), int(oos_mask.sum()), args.out_dir)
 
 
 if __name__ == "__main__":
@@ -176,6 +222,11 @@ if __name__ == "__main__":
     parser.add_argument("--classes", nargs="*", default=None,
                         help="Override the trained class space (default: reals + "
                              "in_set_generators + finetune_new_classes from config)")
+    parser.add_argument("--class_mode", choices=attribution_taxonomy.VALID_MODES, default=None,
+                        help="fake_only (primary eight-way) or joint (eight fakes + merged Real). "
+                             "Default: attribution.primary_mode from config.")
+    parser.add_argument("--allow_missing_fake_classes", action="store_true",
+                        help="Development-only: do not fail when a configured fake class is absent.")
     parser.add_argument("--group_map", nargs="*", default=None,
                         help="Path(s) to full_path,source_image_id sidecar CSV(s) (e.g. "
                              "openforensics_groups.csv) for group-aware splitting. Default: "

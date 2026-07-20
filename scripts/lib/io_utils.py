@@ -113,13 +113,15 @@ def load_group_map(paths, logger=None) -> Dict[str, str]:
 
 def default_group_map_paths(config: dict):
     """Conventional sidecar location(s) to auto-load for group-aware splitting when a script's
-    --group_map flag is not passed. Currently just OpenForensics's
-    <dataset_root>/openforensics/openforensics_groups.csv; extend this list if another dataset
-    grows the same same-source-multi-crop coupling risk."""
+    --group_map flag is not passed. OpenForensics couples real/fake crops from one source photo;
+    SD1.5 img2img couples each London-DB real source with its generated derivative(s)."""
     root = config.get("dataset_root")
     if not root:
         return []
-    return [os.path.join(str(root), "openforensics", "openforensics_groups.csv")]
+    return [
+        os.path.join(str(root), "openforensics", "openforensics_groups.csv"),
+        os.path.join(str(root), "sd15_img2img", "londondb_img2img_groups.csv"),
+    ]
 
 
 def apply_group_map(paths, group_map: Dict[str, str], logger=None):

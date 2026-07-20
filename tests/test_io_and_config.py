@@ -50,6 +50,19 @@ def test_config_has_both_classes():
     assert "real" in labels and "fake" in labels
 
 
+def test_attribution_taxonomy_is_eight_fakes_plus_test_only_openforensics():
+    attr = _load_raw()["attribution"]
+    expected = {
+        "SD1.5", "SD1.5-img2img", "FLUX.1-schnell", "StyleGAN3-FFHQ",
+        "FaceApp", "PGGAN-v1", "PGGAN-v2", "StarGAN",
+    }
+    assert attr["primary_mode"] == "fake_only"
+    assert set(attr["fake_generators"]) == expected
+    assert set(attr["in_set_generators"] + attr["finetune_new_classes"]) == expected
+    assert attr["out_of_set_generators"] == ["OpenForensics-fake"]
+    assert not (expected & set(attr["out_of_set_generators"]))
+
+
 def test_load_group_map_round_trip(tmp_path):
     csv_path = tmp_path / "openforensics_groups.csv"
     csv_path.write_text(
@@ -74,7 +87,10 @@ def test_load_group_map_missing_file_is_empty():
 
 def test_default_group_map_paths_uses_dataset_root():
     paths = io_utils.default_group_map_paths({"dataset_root": "/x/dataset"})
-    assert paths == [os.path.join("/x/dataset", "openforensics", "openforensics_groups.csv")]
+    assert paths == [
+        os.path.join("/x/dataset", "openforensics", "openforensics_groups.csv"),
+        os.path.join("/x/dataset", "sd15_img2img", "londondb_img2img_groups.csv"),
+    ]
     assert io_utils.default_group_map_paths({}) == []
 
 

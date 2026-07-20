@@ -2,8 +2,8 @@
 """
 Binary real-vs-fake detection with a linear-kernel SVM on log-DCT features (Frank2020).
 
-This is the secondary detector that complements DE-FAKE. Per the GOLD review, the SVM is a
-LINEAR-kernel 2-class classifier (real vs fake) - documented explicitly to avoid the
+This is the professor-facing primary detector; pretrained binary DE-FAKE is the baseline.
+The SVM is a LINEAR-kernel 2-class classifier (real vs fake) - documented explicitly to avoid the
 "what kind of classifier is this" confusion from the interim meeting.
 
 Modes:
@@ -20,6 +20,9 @@ Modes:
 
 random/out_of_set output metrics JSON + a fitted model (joblib). Uses the SVM decision function
 as the "fake" score for AUROC/AUPRC.
+
+When `--train_features` is supplied, fit rows come from that row-aligned matrix (normally
+training-only JPEG augmentation) while validation/test rows always come from clean `--features`.
 
 LEAKAGE NOTE (fixed via --test_index): the robustness pipeline (make_split.py -> test_index.csv)
 stratifies its split on the 12-class GENERATOR column, while plain `--mode random` here
@@ -96,15 +99,64 @@ def _write_per_image(out_dir, paths, generator, y_true, scores, preds):
     return out_csv
 
 
+def _exclude_heldout_group_overlap(train_mask, heldout_mask, groups, paths):
+    """Remove training rows sharing an explicit source group with held-out rows."""
+    groups = np.asarray(groups).astype(str)
+    paths = np.asarray(paths).astype(str)
+    explicit_heldout_groups = {
+        g for g, p in zip(groups[heldout_mask], paths[heldout_mask]) if g != p
+    }
+    if not explicit_heldout_groups:
+        return train_mask.copy(), 0, 0
+    overlap = train_mask & np.isin(groups, list(explicit_heldout_groups))
+    cleaned = train_mask & ~overlap
+    return cleaned, int(overlap.sum()), len(explicit_heldout_groups)
+
+
+def _load_groups(args, paths, logger):
+    """Resolve feature paths through a variant index into configured group sidecars."""
+    config_path = getattr(args, "config", None)
+    index_path = getattr(args, "index", None)
+    require_group_map = bool(getattr(args, "require_group_map", False))
+    if not config_path and not index_path:
+        if require_group_map:
+            raise SystemExit("--require_group_map needs --config and --index")
+        return np.asarray(paths).astype(str)
+    if not (config_path and index_path):
+        raise SystemExit("Pass --config and --index together for group-aware DCT evaluation")
+    config = io_utils.load_config(config_path)
+    explicit_maps = getattr(args, "group_map", None)
+    map_paths = explicit_maps if explicit_maps else io_utils.default_group_map_paths(config)
+    group_map = io_utils.load_group_map(map_paths, logger)
+    if require_group_map and not group_map:
+        raise SystemExit("Required group sidecar did not load from: %s" % map_paths)
+    lookup_map = io_utils.load_group_lookup_map(index_path)
+    return (io_utils.apply_group_map_with_lookup(
+        paths, lookup_map, group_map, logger=logger) if group_map
+            else np.asarray(paths).astype(str))
+
+
 def main(args):
     logger = io_utils.setup_logging("dct_svm")
     io_utils.ensure_dir(args.out_dir)
     X, y, _, generator, _, paths = _load(args.features)
+    X_fit = X
+    if args.train_features:
+        X_fit, y_fit, _, generator_fit, _, paths_fit = _load(args.train_features)
+        if not (np.array_equal(y, y_fit)
+                and np.array_equal(generator, generator_fit)
+                and np.array_equal(paths, paths_fit)):
+            raise SystemExit("--train_features rows do not align with --features")
+        logger.info("Training features: %s; evaluation features remain clean: %s",
+                    args.train_features, args.features)
     logger.info("Loaded X=%s, positives(fake)=%d, negatives(real)=%d",
                 X.shape, int(y.sum()), int((1 - y).sum()))
 
-    summary = {"mode": args.mode, "n_total": int(len(y))}
+    summary = {"mode": args.mode, "n_total": int(len(y)),
+               "evaluation_features": args.features,
+               "training_features": args.train_features or args.features}
     te_idx = None  # test-set indices, for the per-image dump
+    groups = _load_groups(args, paths, logger)
 
     if args.mode == "predict":
         if not args.model:
@@ -128,6 +180,7 @@ def main(args):
         return
 
     if args.mode == "random":
+        excluded_train = set(args.exclude_train_generators or [])
         if args.test_index:
             import pandas as pd
             test_paths = set(pd.read_csv(args.test_index)[schema.PATH].astype(str))
@@ -138,8 +191,13 @@ def main(args):
                     "--test_index %s matched 0 rows in --features %s; check that both were "
                     "built from the same index/variant." % (args.test_index, args.features))
             te = np.where(is_test)[0]
-            tr = np.where(~is_test)[0]
-            clf, result, scores, preds = _fit_eval(X[tr], y[tr], X[te], y[te], args.seed)
+            tr = np.where(
+                (~is_test) & np.array([g not in excluded_train for g in generator]))[0]
+            if excluded_train:
+                logger.info("Excluded from random-split training: %s",
+                            sorted(excluded_train))
+            clf, result, scores, preds = _fit_eval(
+                X_fit[tr], y[tr], X[te], y[te], args.seed)
             te_idx = te
             summary["split_source"] = args.test_index
             summary["n_test_index_rows"] = len(test_paths)
@@ -149,10 +207,11 @@ def main(args):
                         n_matched, len(test_paths), json.dumps(result))
         else:
             from sklearn.model_selection import train_test_split
-            idx = np.arange(len(y))
+            idx = np.where(np.array([g not in excluded_train for g in generator]))[0]
             tr, te = train_test_split(idx, test_size=args.test_size,
-                                      stratify=y, random_state=args.seed)
-            clf, result, scores, preds = _fit_eval(X[tr], y[tr], X[te], y[te], args.seed)
+                                      stratify=y[idx], random_state=args.seed)
+            clf, result, scores, preds = _fit_eval(
+                X_fit[tr], y[tr], X[te], y[te], args.seed)
             te_idx = te
             summary["split_source"] = "internal_binary_stratified_random_split"
             summary["test"] = result
@@ -174,14 +233,24 @@ def main(args):
         real_test = set(real_idx[:n_real_test].tolist())
         train_mask = np.array([train_mask[i] and (i not in real_test)
                                for i in range(len(y))])
+        train_mask, n_group_excluded, n_heldout_groups = _exclude_heldout_group_overlap(
+            train_mask, is_held, groups, paths)
+        if getattr(args, "require_group_map", False) and n_heldout_groups == 0:
+            raise SystemExit(
+                "No explicit group IDs matched held-out generators %s; refusing an "
+                "uncontrolled OOS challenge." % sorted(held))
         test_mask = np.array([(is_held[i] and y[i] == 1) or (i in real_test)
                               for i in range(len(y))])
-        logger.info("Out-of-set: train=%d test=%d (held generators=%s)",
-                    int(train_mask.sum()), int(test_mask.sum()), sorted(held))
-        clf, result, scores, preds = _fit_eval(X[train_mask], y[train_mask],
+        logger.info("Out-of-set: train=%d test=%d held=%s; excluded %d train row(s) "
+                    "overlapping %d held-out source group(s)",
+                    int(train_mask.sum()), int(test_mask.sum()), sorted(held),
+                    n_group_excluded, n_heldout_groups)
+        clf, result, scores, preds = _fit_eval(X_fit[train_mask], y[train_mask],
                                                X[test_mask], y[test_mask], args.seed)
         te_idx = np.where(test_mask)[0]
         summary["holdout_generators"] = sorted(held)
+        summary["heldout_source_groups"] = n_heldout_groups
+        summary["train_rows_excluded_for_group_overlap"] = n_group_excluded
         summary["test"] = result
         logger.info("Out-of-set test metrics: %s", json.dumps(result))
     else:
@@ -205,6 +274,9 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Linear-SVM real/fake detector on DCT.")
     parser.add_argument("--features", required=True, help=".npz from dct_extract_features.py")
+    parser.add_argument("--train_features", default=None,
+                        help="Optional row-aligned training-only augmented features. Evaluation "
+                             "always uses clean --features.")
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--mode", choices=["random", "out_of_set", "predict"], default="random")
     parser.add_argument("--model", default=None,
@@ -217,5 +289,15 @@ if __name__ == "__main__":
                              "full_path rows define the held-out test set exactly, instead of "
                              "an internal binary-stratified split. Use this whenever the DCT "
                              "test set feeds the robustness pipeline (see LEAKAGE NOTE above).")
+    parser.add_argument("--exclude_train_generators", nargs="*", default=None,
+                        help="Generators never allowed in training (e.g. OpenForensics-fake).")
+    parser.add_argument("--config", default=None,
+                        help="Config used to locate group sidecars (pair with --index).")
+    parser.add_argument("--index", default=None,
+                        help="Source index for variant full_path -> source_path group lookup.")
+    parser.add_argument("--group_map", nargs="*", default=None,
+                        help="Explicit full_path,source_image_id sidecar(s).")
+    parser.add_argument("--require_group_map", action="store_true",
+                        help="Fail unless held-out rows resolve to explicit source groups.")
     parser.add_argument("--seed", type=int, default=42)
     main(parser.parse_args())

@@ -4,9 +4,9 @@ Split-leakage audit: detect train/val/test contamination and report per-split ba
 
 Near-duplicates across splits inflate every accuracy number. Our biggest risk is the SD/FLUX
 generators (multiple seeds per prompt -> visually similar siblings) landing on both sides of the
-split. This is a DIAGNOSTIC: we do NOT switch to identity-group splitting (no identity labels;
-reals are drawn from large pools so identity collisions are improbable, and per-source grouping
-is degenerate because source == generator == class). Dependency-free (PIL + numpy only).
+split. London-DB/img2img and OpenForensics rows use explicit identity/source-photo sidecars;
+other datasets still rely on exact/perceptual duplicate audits because compatible identity labels
+are unavailable. Dependency-free (PIL + numpy only).
 
 Two ways to define the splits:
   - finetune (default): reconstruct the in-set train/val/test split exactly as
@@ -32,7 +32,7 @@ import sys
 from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import io_utils, defake_head, schema  # noqa: E402
+from lib import attribution_taxonomy, defake_head, io_utils, schema  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
@@ -62,7 +62,8 @@ def _hamming(a, b):
     return bin(a ^ b).count("1")
 
 
-def _finetune_splits(index_csv, config, group_map_paths=None, logger=None):
+def _finetune_splits(index_csv, config, group_map_paths=None, logger=None,
+                     class_mode=None):
     """Reconstruct the in-set train/val/test split as finetune_defake_head.py does; out-of-set
     generators are tagged `unseen`. Returns a DataFrame with a `split` column.
 
@@ -82,18 +83,15 @@ def _finetune_splits(index_csv, config, group_map_paths=None, logger=None):
     df = pd.read_csv(index_csv)
     generator = df[schema.GENERATOR].astype(str).to_numpy()
     paths = df[schema.PATH].astype(str).to_numpy()
-    attr = config.get("attribution", {}) or {}
-    real_generators = set(attr.get("real_generators", []))
-    trained_fakes = list(dict.fromkeys(
-        list(attr.get("in_set_generators", [])) + list(attr.get("finetune_new_classes", []))))
-    allowed = real_generators | set(trained_fakes)
-    present = set(generator)
-    classes = sorted(g for g in present if g in allowed)
-    class_set = set(classes)
-    in_mask = np.array([g in class_set for g in generator])
+    mode = attribution_taxonomy.class_mode(config, class_mode)
+    population = attribution_taxonomy.prepare_population(
+        generator, paths, config, mode=mode, seed=int(config.get("seed", 42)))
+    classes = population["classes"]
+    in_mask = population["train_mask"]
+    mapped_generator = population["mapped_generators"]
 
     split = np.array(["unseen"] * len(df), dtype=object)
-    gi, pi = generator[in_mask], paths[in_mask]
+    gi, pi = mapped_generator[in_mask], paths[in_mask]
     y = defake_head.encode_labels(gi, classes)
     # Group-aware reconstruction: MUST match finetune_defake_head.py's actual split (including
     # its group_map), or this audit would report a leak the real pipeline already closed (or
@@ -138,7 +136,8 @@ def main(args):
     else:
         if not (args.index and args.config):
             raise SystemExit("--index and --config required for finetune mode")
-        df = _finetune_splits(args.index, io_utils.load_config(args.config), args.group_map, logger)
+        df = _finetune_splits(args.index, io_utils.load_config(args.config),
+                              args.group_map, logger, args.class_mode)
 
     # Group-straddle check: with the group-aware split fix, no group (e.g. an OpenForensics
     # source_image_id shared by a real+fake crop pair) should ever have members on more than
@@ -261,6 +260,8 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["finetune", "index_files"], default="finetune")
     parser.add_argument("--config", default=None)
     parser.add_argument("--index", default=None, help="Index CSV for finetune-split reconstruction")
+    parser.add_argument("--class_mode", choices=attribution_taxonomy.VALID_MODES, default=None,
+                        help="Attribution split to reconstruct (default: config primary mode).")
     parser.add_argument("--train_index", default=None)
     parser.add_argument("--test_index", default=None)
     parser.add_argument("--group_map", nargs="*", default=None,

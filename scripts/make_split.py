@@ -45,6 +45,9 @@ def main(args):
         tr_idx, _, te_idx = defake_head.stratified_split(
             y, test_size=config.get("test_size", 0.2), val_size=0.0, seed=seed,
             keys=paths, groups=groups)
+        n_checked = defake_head.assert_no_group_straddle(
+            groups, {"train": tr_idx, "test": te_idx}, keys=paths)
+        logger.info("Post-split group assertion passed (%d explicit groups)", n_checked)
         train_df, test_df = df.iloc[tr_idx], df.iloc[te_idx]
     else:
         from sklearn.model_selection import train_test_split

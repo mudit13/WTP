@@ -34,7 +34,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import io_utils, metrics, schema  # noqa: E402
+from lib import attribution_taxonomy, io_utils, metrics, schema  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
@@ -80,8 +80,10 @@ def main(args):
     logger = io_utils.setup_logging("eval_defake_attribution")
     io_utils.ensure_dir(args.out_dir)
     config = io_utils.load_config(args.config)
-    in_set_cfg = set(config["attribution"]["in_set_generators"])
-    real_gens = set(config["attribution"].get("real_generators", []))
+    mode = attribution_taxonomy.class_mode(config, args.class_mode)
+    in_set_cfg = set(attribution_taxonomy.classes_for_mode(config, mode))
+    real_gens = set(attribution_taxonomy.real_generators(config))
+    merged_real = attribution_taxonomy.real_class_name(config)
     trained = _load_trained_classes(args, logger)
 
     pred = pd.read_csv(args.predictions)
@@ -89,9 +91,12 @@ def main(args):
         raise SystemExit("Predictions missing '%s'. Columns: %s"
                          % (args.pred_col, list(pred.columns)))
     df = _resolve_truth(pred, args.master, logger)
-    # Attribution is over fakes (exclude real-source rows).
-    df = df[~df["true_generator"].isin(real_gens)].copy()
-    logger.info("Attribution rows (fake only): %d", len(df))
+    raw_truth = df["true_generator"].astype(str).copy()
+    df["true_generator"] = attribution_taxonomy.remap_reals(raw_truth, config, mode)
+    if mode == attribution_taxonomy.FAKE_ONLY:
+        # The primary attributor is conditional on DCT already declaring the input fake.
+        df = df[~raw_truth.isin(real_gens | {merged_real})].copy()
+    logger.info("Attribution rows (mode=%s): %d", mode, len(df))
 
     # Decide in-set membership from GROUND TRUTH about what was trained, not a static config
     # list. Priority: per-image `in_set` column (written by finetune) > trained-class list >
@@ -100,7 +105,7 @@ def main(args):
         is_in = df["in_set"].astype(bool)
         logger.info("in/out-of-set from per-image 'in_set' column")
     elif trained is not None:
-        is_in = df["true_generator"].isin(trained - real_gens)
+        is_in = df["true_generator"].isin(trained)
         logger.info("in/out-of-set from trained-class list")
     else:
         logger.warning("No trained-class info (no in_set column / --classes_json / "
@@ -118,7 +123,8 @@ def main(args):
         labels = sorted(set(list(y_true) + list(y_pred)))
         res = metrics.attribution_metrics(y_true, y_pred, labels)
         metrics.save_confusion_matrix(
-            np.array(res["confusion_matrix"]), res["labels"],
+            np.array(res["confusion_matrix"]),
+            attribution_taxonomy.display_names(config, res["labels"]),
             png_path=os.path.join(args.out_dir, "cm_%s.png" % tag),
             csv_path=os.path.join(args.out_dir, "cm_%s.csv" % tag),
             title="Attribution (%s)" % tag, normalize=True)
@@ -126,8 +132,11 @@ def main(args):
                     tag, res["top1_accuracy"], res["macro_f1"], res["balanced_accuracy"])
         return res
 
+    fake_df = df[df["true_generator"] != merged_real]
     results = {
-        "all_fakes": evaluate(df, "all_fakes"),
+        "class_mode": mode,
+        "all_in_scope": evaluate(df, "all_in_scope"),
+        "all_fakes": evaluate(fake_df, "all_fakes"),
         "in_set": evaluate(df[df["in_set"]], "in_set"),
         "out_of_set": evaluate(df[~df["in_set"]], "out_of_set"),
     }
@@ -138,6 +147,10 @@ def main(args):
     export = export.rename(columns={args.pred_col: "pred_generator"})
     if "confidence" in df.columns:
         export["confidence"] = df["confidence"].values
+    if "entropy" in df.columns:
+        export["entropy"] = df["entropy"].values
+    if "group_id" in df.columns:
+        export["group_id"] = df["group_id"].values
     export.to_csv(os.path.join(args.out_dir, "attribution_per_image.csv"), index=False)
     logger.info("Wrote attribution_metrics.json + attribution_per_image.csv to %s",
                 args.out_dir)
@@ -152,6 +165,8 @@ if __name__ == "__main__":
                         help="master_metadata.csv (needed if predictions lack true_generator)")
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--pred_col", default="pred_generator")
+    parser.add_argument("--class_mode", choices=attribution_taxonomy.VALID_MODES, default=None,
+                        help="fake_only (primary) or joint (include merged Real).")
     parser.add_argument("--classes_json", default=None,
                         help="finetune_metrics.json with the trained 'classes' list (defines "
                              "in-set). Auto-detected next to --predictions if omitted.")

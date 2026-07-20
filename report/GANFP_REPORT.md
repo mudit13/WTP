@@ -1,5 +1,8 @@
 # GAN Fingerprints Reproduction — Plain-English Report
 
+> **Appendix-only historical workstream.** GAN-fp is not part of the professor-facing core
+> pipeline. The primary result is DCT detection followed by eight-way DE-FAKE attribution.
+
 A non-technical writeup of the GAN-fingerprints (GAN-fp) work: the problem, why we had to
 build it ourselves, what we built, the results, and the honest caveats.
 
@@ -23,7 +26,7 @@ We verified on the GPU server that **no pretrained GAN-fp weights exist** (`mode
 only DE-FAKE checkpoints + the generators), and the legacy `/workspace/GANFingerprints` repo
 is **unusable** (an obsolete Chainer/CUDA-10 stack, built for *other* GANs, with no bundled
 weights — and DFFD's leftover `Fingerprints_*` dirs were empty, confirming a prior attempt
-left nothing). Per `GOLD_ALIGNMENT.md` / `PROJECT_LOG §5`, we therefore **reproduced the
+left nothing). Per `REVIEW_SAFEGUARDS.md` / `PROJECT_LOG §5`, we therefore **reproduced the
 method in PyTorch**.
 
 ## 3. What we built

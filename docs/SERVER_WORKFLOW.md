@@ -31,6 +31,8 @@ venvs live in the same dir but are git-ignored.
 │   ── git-ignored (present on server, not committed) ──
 ├── dataset/
 │   ├── sd15_txt2img/images/           *.png  (fake, SD1.5, near_in_set)
+│   ├── sd15_img2img/images/            *.png  (generated on first aligned run)
+│   │   └── ../londondb_img2img_groups.csv    (London identity coupling sidecar)
 │   ├── flux1_txt2img/images/          *.png  (fake, FLUX.1-schnell, out_of_set)
 │   ├── stylegan3/images/              *.png  (fake, StyleGAN3-FFHQ, out_of_set)
 │   ├── londondb/neutral_front/neutral_front/  *.jpg (real, London-DB)  <- narrow
@@ -79,6 +81,15 @@ Never use bare `python`.
 ```bash
 $WTP_PY_DEFAKE scripts/<entry>.py --config configs/config.yaml ... \
     2>&1 | tee logs/run_$(date +%Y%m%d_%H%M%S).log
+```
+
+Professor-aligned orchestrated runs require a unique immutable tag:
+
+```bash
+nohup $WTP_PY_DEFAKE scripts/run_experiment.py \
+    --run_id 2026-07-20_eightway_v1 \
+    --stages index,variants,confound,detect,dct,attribution,cascade,oos,aggregate \
+    > logs/eightway_20260720.out 2>&1 &
 ```
 
 ## 6. Data hygiene before every batch

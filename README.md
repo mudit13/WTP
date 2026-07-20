@@ -1,6 +1,6 @@
 # WTP Topic 8 - AI Image Detection & Attribution
 
-> New to the project? Start with **`docs/IMPLEMENTATION_GUIDE.md`**, then `docs/PIPELINE.md`.
+> New to the project? Start with **`docs/README.md`**, then `docs/IMPLEMENTATION_GUIDE.md`.
 
 Unified repository for the project (github.com/mudit13/WTP). It contains **both** the
 generation/inference pipeline that runs on the GPU container **and** the analysis/experiments
@@ -16,17 +16,19 @@ for the venvs.
 
 ## Research questions
 
-- RQ1 (Detection): How well do CLIP-based (DE-FAKE) and frequency-based (DCT-SVM) detectors
-  separate real photographs from AI-generated faces, including out-of-set generators
-  (FLUX.1, StyleGAN3, DFFD GANs)?
-- RQ2 (Attribution): How well can a generator be attributed from a fake image, in-set vs
-  out-of-set? (Note: the provided DE-FAKE head is binary-only; attribution comes from our
-  fine-tuned head.)
+- RQ1 (Detection): How well does the log-DCT linear SVM separate real photographs from fake
+  faces? The provided binary DE-FAKE model is the pretrained baseline.
+- RQ2 (Attribution): Conditional on an image being detected as fake, how well can a fine-tuned
+  DE-FAKE head distinguish eight generators: SD1.5 txt2img, SD1.5 img2img, FLUX.1-schnell,
+  StyleGAN3-FFHQ, FaceApp, PGGAN-v1, PGGAN-v2, and StarGAN?
+- Generalization: In eight LOGO folds, where does a closed-set head force an omitted generator,
+  and can confidence/entropy support rejection? OpenForensics-fake is test-only.
 
 ## Pipeline overview
 
-Generation + DE-FAKE inference (already run on the server) now live in `scripts/`:
-`generate_sd15_txt2img.py`, `generate_flux1_txt2img.py`, `generate_stylegan3.py`,
+Generation + DE-FAKE inference live in `scripts/`:
+`generate_sd15_txt2img.py`, `generate_sd15_img2img.py`, `generate_flux1_txt2img.py`,
+`generate_stylegan3.py`,
 `build_master_index.py`, `run_defake_batch.py` (`--dataset_filter dffd_` for the DFFD-only
 subset), `merge_predictions.py`.
 (The previously separate `update_master_index_dffd.py` is folded into the config-driven
@@ -36,6 +38,11 @@ subset), `merge_predictions.py`.
   source_dataset, width, height`
 - `dataset/defake_predictions*.csv` adds: `defake_predict` (0=real,1=fake), `prob_real`,
   `prob_fake`, `blip_caption`
+
+The professor-facing system is a real cascade: DCT-SVM detection first, then the primary
+eight-fake DE-FAKE attribution head. A secondary nine-way sensitivity model adds one merged
+`real` class drawn evenly from London-DB, FFHQ, CelebA, and OpenForensics-real. Executed
+experiments require an immutable `run_experiment.py --run_id ...` directory.
 
 Every script reads/writes that exact schema via `scripts/lib/schema.py`. Path constants are
 read from `configs/paths.env` (with the original absolute defaults), so no script hardcodes
@@ -53,8 +60,8 @@ scripts/            All Python entry points (argparse CLIs, Python 3.9):
   prepare_variants, sample_dataset, make_split, make_datasheets, aggregate_results
 scripts/lib/        Shared package: schema, metrics, io, image ops, clip/features, head
 De-Fake-patched/    Vendored DE-FAKE code (blipmodels package + test.py/train.py)
-docs/               IMPLEMENTATION_GUIDE (start here), PIPELINE runbook, GOLD_ALIGNMENT,
-                    PROJECT_LOG (changes+reasons), SERVER_WORKFLOW, ENVIRONMENTS, DATASHEET_TEMPLATE
+docs/               README (document map), IMPLEMENTATION_GUIDE, PIPELINE (active runbook),
+                    REVIEW_SAFEGUARDS, PROJECT_LOG, SERVER_WORKFLOW, ENVIRONMENTS, datasheets
 report/             Report outline
 results/  logs/      Generated outputs (git-ignored except .gitkeep)
 --- not in git (live alongside on the server, git-ignored) ---

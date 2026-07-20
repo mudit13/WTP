@@ -3,7 +3,8 @@
 Topic 8: AI Image Detection & Attribution. Code is authored locally and executed inside the
 GPU container; the repo root maps to the container project root (`/pitsec_sose26_topic8`).
 This log explains WHAT changed and WHY, so anyone (team or examiner) can follow the reasoning.
-For how each change maps to the interim "GOLD" review, see `docs/GOLD_ALIGNMENT.md`.
+For the still-binding scientific safeguards from earlier reviews, see
+`docs/REVIEW_SAFEGUARDS.md`.
 
 ---
 
@@ -46,8 +47,8 @@ changing the logic of scripts the team already ran successfully.
 
 **What:** Replaced the conflicted `.gitignore` with one canonical file that ignores datasets,
 model weights, all three venvs, results/logs, and secrets. Replaced the supervisor's name in
-all committed files with "the supervisor", and kept internal coordination notes in
-`docs/OPEN_QUESTIONS.md` (git-ignored, local only).
+all committed files with "the supervisor", and initially kept internal coordination notes in
+an untracked local file (removed after the questions were resolved).
 
 **Why:** Keep large/non-relocatable artifacts and any internal/identifying content out of a
 GitHub repo; venvs in particular must never be committed (they hardcode absolute paths).
@@ -968,3 +969,55 @@ verifying with real data at every step rather than assuming either "it's fixed" 
 broken" - exactly the discipline the colleague asked for ("ask me to run commands to find the
 issue first before jumping to a fix"), applied three times in a row, with three different real
 answers each time.
+
+## 24. Professor realignment: eight-way attribution and a true cascade (2026-07-20)
+
+**Why:** The latest written feedback asks a different primary question from the historical
+7-class study: distinguish eight fake generators with DE-FAKE after log-DCT has detected fake
+content. Real is optional and OpenForensics-fake is test-only. The old 95.5% result therefore
+cannot answer the new question (it trained on 3 fakes + 4 separate real-source labels).
+
+**Implemented locally (server rerun still required):**
+
+- `configs/config.yaml` now declares exactly eight trained fake generators. The primary mode is
+  fake-only; a secondary joint mode merges London-DB, FFHQ, CelebA, and OpenForensics-real into
+  one source-balanced `real` class capped at 300. OpenForensics-fake is the sole OOS generator.
+- Added `scripts/lib/attribution_taxonomy.py` so fine-tuning, evaluation, LOGO, tests, and the
+  orchestrator share one class-space implementation and fail fast if any fake class is absent.
+- Added resumable `generate_sd15_img2img.py` with a generation manifest and per-image provenance,
+  plus `make_img2img_group_map.py`. The London real and every derivative share a namespaced
+  identity group. Existing content-stable group hashing and variant `source_path` lookup remain.
+- Corrected LOGO: each of eight folds trains on exactly the other seven declared fake classes,
+  never every non-target generator in the index. A joint-mode fold also removes Real rows sharing
+  a held-out img2img identity.
+- Added a real cascade evaluator. The primary head is predicted over the SAME fixed test index as
+  DCT; end-to-end attribution is correct only if DCT predicts fake and the head predicts the
+  correct known generator. Conditional attribution, detector misses, per-generator end-to-end
+  recall, real false positives, and the OpenForensics-fake challenge are separate outputs.
+- DCT random-split training now excludes OpenForensics-fake; a separate out-of-set DCT run tests
+  all of it. This closes a test-only violation that the attribution-only config could not prevent.
+- The DCT OpenForensics challenge now resolves variant paths through the source-group sidecar and
+  removes every OpenForensics-real training row sharing a source photo with any held-out fake.
+  The orchestrator requires a working group map and aborts if no held-out group IDs resolve.
+- JPEG augmentation is now genuinely training-only: fine-tune/LOGO/seed-sweep use a companion
+  augmented cache for fit rows and the clean cache for validation, test, and OOS. Historical
+  code augmented the complete feature matrix before splitting, so its "training-time" wording
+  did not match its evaluation behavior.
+- `run_experiment.py` now plans primary 8-way + auxiliary 9-way + eight-fold LOGO + cascade,
+  requires an immutable `--run_id`, records a config/git manifest, and keeps prior DCT split,
+  JPEG augmentation, caption remapping, and cache-signature safeguards.
+- Attribution exports carry `group_id`; bootstrap CIs cluster repeated identity derivatives when
+  that column is present.
+- `make_split`, fine-tune, LOGO, and seed-sweep now execute post-split assertions over the actual
+  run population; any explicit source group appearing on two split sides aborts immediately.
+- Img2img pilot generation is restricted to train-hashed identities and a separate non-indexed
+  output root. Exact model revision is mandatory. The authoritative generator refuses a
+  train-only partition and records the chosen strength in its immutable manifest.
+
+**Interpretation guard:** London identity grouping prevents train/test identity leakage but does
+not remove the London-only content/acquisition confound. The report must name this generation
+condition precisely and treat a multi-source img2img dataset as the stronger future design.
+
+**Status:** code and local CPU tests can be validated locally. SD1.5 img2img generation, sidecar
+creation, index rebuilding, GPU fine-tuning, LOGO, cascade scoring, and all new report numbers are
+pending the server run. Historical `results/REPORT_SUMMARY.md` remains non-authoritative.

@@ -175,3 +175,18 @@ def test_group_aware_split_keeps_coupled_group_on_one_side():
             % (i, split_of[real_idx], split_of[fake_idx]))
     # Every index assigned exactly once, and all rows accounted for.
     assert sorted(split_of.keys()) == list(range(len(keys)))
+
+
+def test_post_split_assertion_detects_group_straddle():
+    keys = np.array(["a_real", "a_fake", "solo"])
+    groups = np.array(["source:a", "source:a", "solo"])
+    checked = defake_head.assert_no_group_straddle(
+        groups, {"train": np.array([0, 1]), "test": np.array([2])}, keys=keys)
+    assert checked == 1
+    try:
+        defake_head.assert_no_group_straddle(
+            groups, {"train": np.array([0]), "test": np.array([1, 2])}, keys=keys)
+    except AssertionError as exc:
+        assert "straddles" in str(exc)
+    else:
+        raise AssertionError("straddling source group should fail")

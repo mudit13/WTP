@@ -23,7 +23,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import io_utils, metrics, features_cache, defake_head  # noqa: E402
+from lib import (attribution_taxonomy, defake_head, features_cache,
+                 io_utils, metrics)  # noqa: E402
 
 import numpy as np  # noqa: E402
 
@@ -61,24 +62,39 @@ def main(args):
     X, generator, label, paths = features_cache.build_features(
         args.index, args.features_cache, device=args.device,
         force=args.recompute_features, captions_csv=args.captions_csv,
-        jpeg_aug=jpeg_aug, jpeg_quality_range=qrange, seed=feat_seed)
+        jpeg_aug=False, jpeg_quality_range=qrange, seed=feat_seed)
+    X_fit = X
+    if jpeg_aug:
+        X_fit, gen_aug, label_aug, paths_aug = features_cache.build_features(
+            args.index, features_cache.training_aug_cache_path(args.features_cache),
+            device=args.device, force=args.recompute_features,
+            captions_csv=args.captions_csv, jpeg_aug=True,
+            jpeg_quality_range=qrange, seed=feat_seed)
+        if not (np.array_equal(generator, gen_aug)
+                and np.array_equal(label, label_aug)
+                and np.array_equal(paths, paths_aug)):
+            raise SystemExit("Clean and training-augmentation feature rows do not align.")
 
-    attr = config.get("attribution", {}) or {}
-    real_generators = set(attr.get("real_generators", []))
-    present = set(generator)
+    mode = attribution_taxonomy.class_mode(config, args.class_mode)
     if args.classes:
-        classes = sorted(set(args.classes))
+        classes = list(dict.fromkeys(args.classes))
+        mapped_generator = attribution_taxonomy.remap_reals(generator, config, mode)
+        in_mask = np.isin(mapped_generator, classes)
     else:
-        trained_fakes = list(dict.fromkeys(
-            list(attr.get("in_set_generators", [])) + list(attr.get("finetune_new_classes", []))))
-        allowed = real_generators | set(trained_fakes)
-        classes = sorted(g for g in present if g in allowed)
+        try:
+            population = attribution_taxonomy.prepare_population(
+                generator, paths, config, mode=mode, seed=feat_seed)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        classes = population["classes"]
+        mapped_generator = population["mapped_generators"]
+        in_mask = population["train_mask"]
     class_set = set(classes)
     if not class_set:
         raise SystemExit("Empty class space; check --classes or config.attribution lists.")
 
-    in_mask = np.array([g in class_set for g in generator])
-    Xi, gi, pi = X[in_mask], generator[in_mask], paths[in_mask]
+    Xi, Xi_fit, gi, pi = (
+        X[in_mask], X_fit[in_mask], mapped_generator[in_mask], paths[in_mask])
     y = defake_head.encode_labels(gi, classes)
     logger.info("Class space (%d): %s | in-set rows=%d", len(classes), classes, len(y))
 
@@ -100,10 +116,12 @@ def main(args):
         tr, va, te = defake_head.stratified_split(
             y, test_size=config.get("test_size", 0.2),
             val_size=config.get("val_size", 0.1), seed=s, keys=pi, groups=groups)
+        defake_head.assert_no_group_straddle(
+            groups, {"train": tr, "val": va, "test": te}, keys=pi)
         cw = defake_head.compute_class_weights(y[tr], len(classes))
         head = defake_head._MLPHead(in_dim=Xi.shape[1], num_classes=len(classes),
                                     device=args.device, seed=s)
-        head.fit(Xi[tr], y[tr], Xi[va], y[va], epochs=args.epochs, lr=args.lr,
+        head.fit(Xi_fit[tr], y[tr], Xi[va], y[va], epochs=args.epochs, lr=args.lr,
                  class_weights=cw, logger=None)
         pred = head.predict_proba(Xi[te]).argmax(axis=1)
         yt = [classes[i] for i in y[te]]
@@ -119,7 +137,7 @@ def main(args):
                     res["top1_accuracy"])
 
     out = {
-        "seeds": seeds, "classes": classes, "n_in_set": int(len(y)),
+        "class_mode": mode, "seeds": seeds, "classes": classes, "n_in_set": int(len(y)),
         "top1_accuracy": _agg(top1), "macro_f1": _agg(macro_f1), "balanced_accuracy": _agg(bal),
         "per_class_recall": {c: _agg(v) for c, v in per_class.items()},
     }
@@ -137,6 +155,7 @@ if __name__ == "__main__":
     parser.add_argument("--features_cache", default=None)
     parser.add_argument("--captions_csv", default=None)
     parser.add_argument("--classes", nargs="*", default=None)
+    parser.add_argument("--class_mode", choices=attribution_taxonomy.VALID_MODES, default=None)
     parser.add_argument("--group_map", nargs="*", default=None,
                         help="Path(s) to full_path,source_image_id sidecar CSV(s) for "
                              "group-aware splitting. Default: auto-load "

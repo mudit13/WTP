@@ -22,6 +22,14 @@ import pandas as pd
 from . import schema
 
 
+def training_aug_cache_path(cache_path: Optional[str]) -> Optional[str]:
+    """Companion cache for training-only JPEG features; clean eval keeps `cache_path`."""
+    if not cache_path:
+        return None
+    root, ext = os.path.splitext(cache_path)
+    return root + "_train_jpegaug" + (ext or ".npz")
+
+
 def _file_hash(path: Optional[str]) -> str:
     """SHA-256 of a file's bytes (or a sentinel if missing). Used so the feature cache
     invalidates when the index/captions content changes, not just their path."""

@@ -17,7 +17,7 @@ expected to mismatch (out-of-set) - documented behavior, not a failure.
 
 No pretrained GAN-fp weights exist (models/ holds DE-FAKE + generators only) and the legacy
 /workspace/GANFingerprints repo is Chainer/cupy (dead), so this reproduces the method in
-PyTorch over our generators (GOLD_ALIGNMENT.md GAN-Fingerprints note; PROJECT_LOG section 5).
+PyTorch over our generators (REVIEW_SAFEGUARDS.md; PROJECT_LOG section 5).
 
 This module is numpy/scipy/Pillow only - torch is NOT imported here (the classifier lives in
 defake_head). Safe to import under any interpreter, including CI (no torch). ASCII; Python 3.9.

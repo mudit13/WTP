@@ -107,6 +107,24 @@ def main(args):
                     oo.get("mean_confidence", float("nan")), oo.get("n", 0)))
         lines.append("")
 
+    cascade = sorted(glob.glob(os.path.join(args.results_dir, "**", "cascade_metrics.json"),
+                               recursive=True))
+    if cascade:
+        lines += ["## End-to-end cascade (DCT-SVM -> DE-FAKE attribution)", ""]
+        for path in cascade:
+            data = _load(path) or {}
+            tag = os.path.relpath(os.path.dirname(path), args.results_dir)
+            known = data.get("known_fake", {})
+            conditional = known.get("conditional_attribution") or {}
+            end_to_end = known.get("end_to_end_attribution") or {}
+            lines.append(
+                "- %s: known-fake n=%d detected=%d conditionalTop1=%.3f "
+                "endToEndTop1=%.3f" % (
+                    tag, known.get("n", 0), known.get("n_detected", 0),
+                    conditional.get("top1_accuracy", float("nan")),
+                    end_to_end.get("top1_accuracy", float("nan"))))
+        lines.append("")
+
     io_utils.ensure_dir(os.path.dirname(os.path.abspath(args.out)))
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))

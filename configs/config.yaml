@@ -41,13 +41,13 @@ datasets:
   - name: sd15_img2img
     label: fake
     generator: "SD1.5-img2img"
-    category: out_of_set
+    category: in_set
     dir: ${WTP_ROOT}/dataset/sd15_img2img/images
     ext: [".png"]
-    note: "Iterative-generation stress test. NOT GENERATED for this run (no images exist under
-      this dir; absent from the section 2/3 dataset table and every reported result). Entry
-      kept so the config stays self-documenting about what was scoped out vs. what would need
-      a generation run to add. build_master_index.py skips it silently since the dir is empty."
+    note: "SD1.5 img2img from London-DB neutral-front source faces. Generation metadata records
+      source identity, prompt, seed, strength, steps, CFG, and model revision. The companion
+      londondb_img2img_groups.csv keeps each source real and every derivative on one split side.
+      Images must be generated on the server before the eight-way attribution run."
 
   - name: flux1_txt2img
     label: fake
@@ -168,19 +168,32 @@ datasets:
 # leave_one_generator_out.py gives the strict generalization number by RETRAINING without a
 # target, so it may hold out in-set generators too (pass them via --targets).
 attribution:
+  # Professor-facing primary task: DCT-SVM first detects fake content, then this head attributes
+  # a detected fake to one of exactly eight generators. The optional `joint` sensitivity run
+  # adds ONE merged `real` class; it never replaces the primary fake-only result.
+  primary_mode: fake_only
+  fake_generators: ["SD1.5", "SD1.5-img2img", "FLUX.1-schnell", "StyleGAN3-FFHQ",
+                    "FaceApp", "PGGAN-v1", "PGGAN-v2", "StarGAN"]
+  display_names:
+    "SD1.5": "SD1.5 txt2img"
+    "SD1.5-img2img": "SD1.5 img2img (London-DB, strength=0.6)"
   # OpenForensics is split by subset, on purpose:
-  #   - OF REALS  -> a TRAINED real class (listed in real_generators below). This is the direct
-  #     answer to GOLD concern #1 / Dennis's strongest steer: diversify the narrow real class with
-  #     in-the-wild faces. Capped (sample_size 300) so it size-matches the other real classes.
+  #   - OF REALS  -> one source contributing to the optional merged `real` class.
   #   - OF FAKES  -> kept OUT-OF-SET ("OpenForensics-fake"): a genuinely unseen manipulation type,
   #     so it stays a clean generalization probe (never trained, only force-scored).
   # The same-photo OF real/fake pairs (shared JPEG q95 pipeline) still serve as the format-matched
   # DETECTION confound benchmark. Trade-off: OF reals are no longer a held-out real probe (the
   # diversify intent wins for the real side); OF-fake remains the held-out fake probe.
   real_generators: ["London-DB", "FFHQ", "CelebA", "OpenForensics"]
-  in_set_generators: ["SD1.5"]
-  finetune_new_classes: ["FLUX.1-schnell", "StyleGAN3-FFHQ"]
-  out_of_set_generators: ["PGGAN-v1", "PGGAN-v2", "StarGAN", "FaceApp", "SD1.5-img2img", "OpenForensics-fake"]
+  merge_reals_to_single_class: true
+  real_class_name: "real"
+  real_sample_cap: 300
+  # Legacy aliases retained because appendix scripts still read these keys. Their union MUST
+  # equal fake_generators; tests enforce that no trained fake remains mislabeled out-of-set.
+  in_set_generators: ["SD1.5", "SD1.5-img2img", "FLUX.1-schnell", "StyleGAN3-FFHQ",
+                      "FaceApp", "PGGAN-v1", "PGGAN-v2", "StarGAN"]
+  finetune_new_classes: []
+  out_of_set_generators: ["OpenForensics-fake"]
 
 # --- GAN Fingerprints (Yu2019-inspired) re-implementation --------------------
 # Residual/spectrum fingerprint features + a small learned classifier

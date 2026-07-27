@@ -82,3 +82,15 @@ def test_cascade_stage_uses_shared_dct_test_predictions(tmp_path):
     assert len(steps) == 2
     assert c.test_index in steps[0]["cmd"]
     assert "%sdct_per_image.csv" % c.dct_svm_out in steps[1]["cmd"]
+
+
+def test_ffhq_ablation_trains_matched_source_specific_heads(tmp_path):
+    c = _ctx(tmp_path)
+    steps = re.stage_ffhq_ablation(c)
+    assert len(steps) == 5
+    with_train = steps[0]["cmd"]
+    without_train = steps[2]["cmd"]
+    assert "FFHQ" in with_train
+    assert "FFHQ" not in without_train
+    assert all(fake in with_train and fake in without_train for fake in c.fake_classes)
+    assert steps[-1]["cmd"][1].endswith("compare_ffhq_ablation.py")

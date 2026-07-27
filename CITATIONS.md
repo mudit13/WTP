@@ -44,6 +44,11 @@ against each paper before final submission.
   sources). Provides the FaceApp/PGGAN/StarGAN/StyleGAN fakes and FFHQ/CelebA reals we use.
 - **CelebA** - Liu, Luo, Wang, Tang. "Deep Learning Face Attributes in the Wild." ICCV 2015.
 - **FFHQ** - Karras, Laine, Aila. "A Style-Based Generator Architecture for GANs." CVPR 2019.
+  Official dataset repository: https://github.com/NVlabs/ffhq-dataset. NVIDIA documents
+  70,000 Flickr images automatically aligned and cropped with dlib into 1024x1024 PNGs.
+  The reference alignment code uses geometric resampling and, where needed, reflected padding
+  with Gaussian-blurred boundary blending. The official documentation does **not** describe a
+  learned super-resolution stage; do not claim one without additional evidence.
 - **FaceForensics++** - Roessler et al. "FaceForensics++: Learning to Detect Manipulated Facial
   Images." ICCV 2019. (part of DFFD's sources.)
 - **Face Research Lab London Set (London-DB)** - DeBruine & Jones. psychomorph.facelab.org

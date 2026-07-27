@@ -131,6 +131,8 @@ def test_cascade_counts_detection_and_attribution_errors_separately():
     assert known["n_not_detected"] == 1
     assert known["conditional_attribution"]["top1_accuracy"] == 0.5
     assert known["end_to_end_attribution"]["top1_accuracy"] == 1.0 / 3.0
+    assert "cohen_kappa" in known["conditional_attribution"]
+    assert "cohen_kappa" in known["end_to_end_attribution"]
     assert result["real_false_positives"]["n_predicted_fake"] == 1
     assert result["openforensics_fake_challenge"]["detection_recall"] == 1.0
     assert int(per_image["end_to_end_correct"].sum()) == 1

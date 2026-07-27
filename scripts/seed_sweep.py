@@ -110,7 +110,7 @@ def main(args):
              if group_map else None)
 
     seeds = [args.base_seed + i for i in range(args.n_seeds)]
-    top1, macro_f1, bal = [], [], []
+    top1, macro_f1, bal, kappa = [], [], [], []
     per_class = {c: [] for c in classes}
     for s in seeds:
         tr, va, te = defake_head.stratified_split(
@@ -130,6 +130,7 @@ def main(args):
         top1.append(res["top1_accuracy"])
         macro_f1.append(res["macro_f1"])
         bal.append(res["balanced_accuracy"])
+        kappa.append(res["cohen_kappa"])
         for c in classes:
             pc = res["per_class"].get(c)
             per_class[c].append(pc["recall"] if pc and pc["support"] > 0 else None)
@@ -138,7 +139,8 @@ def main(args):
 
     out = {
         "class_mode": mode, "seeds": seeds, "classes": classes, "n_in_set": int(len(y)),
-        "top1_accuracy": _agg(top1), "macro_f1": _agg(macro_f1), "balanced_accuracy": _agg(bal),
+        "top1_accuracy": _agg(top1), "macro_f1": _agg(macro_f1),
+        "balanced_accuracy": _agg(bal), "cohen_kappa": _agg(kappa),
         "per_class_recall": {c: _agg(v) for c, v in per_class.items()},
     }
     with open(args.out, "w", encoding="utf-8") as fh:

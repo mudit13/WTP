@@ -32,6 +32,7 @@ The default orchestrator produces:
 - DCT-SVM detection and OpenForensics-fake challenge
 - Primary eight-way attribution
 - Auxiliary nine-way attribution
+- Professor-requested source-specific attribution comparison with and without FFHQ
 - Eight fake-generator LOGO folds
 - End-to-end DCT-to-attribution cascade metrics
 - OpenForensics-fake confidence/entropy analysis
@@ -47,7 +48,8 @@ GAN-fp and robustness are optional appendix stages.
 - London real images and their img2img derivatives share one identity group.
 - OpenForensics real/fake crops sharing a source photo never cross split boundaries.
 - OpenForensics-fake never enters DCT, DE-FAKE, LOGO, or GAN-fp training.
-- Report balanced accuracy, macro-F1, per-class recall, and uncertainty.
+- Report balanced accuracy, macro-F1, unweighted Cohen's kappa, per-class recall, and uncertainty.
+- Do not use Cohen's kappa for LOGO/OOS forced-label tests where the true class is unavailable.
 - Treat OOS/LOGO top-1 as undefined or zero by construction; report forced labels and rejection.
 - Use immutable `results/<run_id>/` directories and preserve `run_manifest.json`.
 

@@ -120,8 +120,10 @@ The plan must print:
 - OpenForensics-fake excluded from DCT training
 - Group-aware OpenForensics challenge
 - Eight-fold LOGO
+- Matched source-specific attribution with and without FFHQ
 - DCT-to-DE-FAKE cascade
-- 22 planned steps
+- Cohen's kappa in binary, multi-class, and cascade metric outputs
+- 27 planned steps
 
 ## 6. Authoritative experiment
 
@@ -129,7 +131,7 @@ The plan must print:
 nohup $PY scripts/run_experiment.py \
   --run_id $RUN \
   --variant aspect --jpeg_aug on \
-  --stages index,variants,confound,detect,dct,attribution,cascade,oos,aggregate \
+  --stages index,variants,confound,detect,dct,attribution,ffhq_ablation,cascade,oos,aggregate \
   > logs/${RUN}.out 2>&1 &
 ```
 
@@ -148,9 +150,23 @@ nohup sh -c '
     --class_mode fake_only \
     --out results/'"$RUN"'/leakage_audit_8way.json &&
   $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
+    --predictions $WTP_ROOT/dataset/defake_predictions_'"$RUN"'_aspect.csv \
+    --out results/'"$RUN"'/ci_defake_detection.json &&
+  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
+    --predictions results/'"$RUN"'/dct_svm_aspect/dct_per_image.csv \
+    --out results/'"$RUN"'/ci_dct_detection.json &&
+  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
     --predictions results/'"$RUN"'/attr_eval_8way_aspect/attribution_per_image.csv \
     --subset in_set \
     --out results/'"$RUN"'/ci_attr_8way.json &&
+  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
+    --predictions results/'"$RUN"'/cascade/cascade_known_fake_conditional.csv \
+    --subset all \
+    --out results/'"$RUN"'/ci_cascade_conditional.json &&
+  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
+    --predictions results/'"$RUN"'/cascade/cascade_known_fake_end_to_end.csv \
+    --subset all \
+    --out results/'"$RUN"'/ci_cascade_end_to_end.json &&
   $WTP_PY_DEFAKE scripts/seed_sweep.py \
     --config configs/config.yaml \
     --index results/'"$RUN"'/index_aspect.csv \
@@ -168,7 +184,8 @@ Required gates:
 - No explicit group straddling
 - No exact cross-split duplicate
 - Every class has train/validation/test support
-- Bootstrap and seed-sweep uncertainty accompany headline metrics
+- Bootstrap kappa intervals accompany DCT, DE-FAKE, attribution, and cascade metrics
+- Seed-sweep uncertainty accompanies primary attribution metrics
 
 ## 8. Optional appendix stages
 
@@ -189,10 +206,15 @@ results/<run_id>/REPORT_SUMMARY.md
 results/<run_id>/dct_svm_aspect/
 results/<run_id>/finetune_8way_aspect_jpegaug/
 results/<run_id>/finetune_9way_aspect_jpegaug/
+results/<run_id>/ffhq_ablation/
 results/<run_id>/logo_8way_aspect_jpegaug/
 results/<run_id>/cascade/
 results/<run_id>/oos_aspect/
 results/<run_id>/ci_attr_8way.json
+results/<run_id>/ci_defake_detection.json
+results/<run_id>/ci_dct_detection.json
+results/<run_id>/ci_cascade_conditional.json
+results/<run_id>/ci_cascade_end_to_end.json
 results/<run_id>/seed_sweep_8way.json
 ```
 

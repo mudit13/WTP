@@ -152,6 +152,20 @@ def main(args):
     with open(os.path.join(args.out_dir, "cascade_metrics.json"), "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2)
     per_image.to_csv(os.path.join(args.out_dir, "cascade_per_image.csv"), index=False)
+    known = per_image[per_image["known_fake"].astype(bool)].copy()
+    end_to_end = known[[
+        schema.PATH, "generator", "pipeline_pred_generator"]].rename(
+            columns={"generator": "true_generator",
+                     "pipeline_pred_generator": "pred_generator"})
+    end_to_end["in_set"] = True
+    end_to_end.to_csv(
+        os.path.join(args.out_dir, "cascade_known_fake_end_to_end.csv"), index=False)
+    conditional = known[known["pred"] == 1][[
+        schema.PATH, "generator", "pred_generator"]].rename(
+            columns={"generator": "true_generator"})
+    conditional["in_set"] = True
+    conditional.to_csv(
+        os.path.join(args.out_dir, "cascade_known_fake_conditional.csv"), index=False)
     logger.info("Wrote cascade metrics/per-image rows to %s", args.out_dir)
 
 

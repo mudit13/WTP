@@ -20,7 +20,7 @@ Examples:
       --stages attribution,oos
   # include the heavy stages too:
   python scripts/run_experiment.py --run_id eightway_v1 \
-      --stages index,variants,confound,detect,dct,attribution,cascade,oos,aggregate
+      --stages index,variants,confound,detect,dct,attribution,ffhq_ablation,cascade,oos,aggregate
 """
 import argparse
 import hashlib
@@ -56,6 +56,15 @@ def _declared_fake_classes(config_path):
         raw = yaml.safe_load(fh)
     attr = raw.get("attribution", {}) or {}
     return list(attr.get("fake_generators", []))
+
+
+def _declared_real_classes(config_path):
+    """Read source-specific real classes for the professor-requested FFHQ ablation."""
+    import yaml
+    with open(config_path, "r", encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    attr = raw.get("attribution", {}) or {}
+    return list(attr.get("real_generators", []))
 
 
 def _prepare_run_dir(c, args):
@@ -116,10 +125,11 @@ def _perturbation_names(config_path):
 
 
 ALL_STAGES = ["index", "variants", "confound", "detect", "dct",
-              "attribution", "cascade", "oos", "ganfp", "robustness", "aggregate"]
+              "attribution", "ffhq_ablation", "cascade", "oos",
+              "ganfp", "robustness", "aggregate"]
 # Default = the confound-controlled headline path. ganfp + robustness are heavy -> opt in.
 DEFAULT_STAGES = ["index", "variants", "confound", "detect", "dct",
-                  "attribution", "cascade", "oos", "aggregate"]
+                  "attribution", "ffhq_ablation", "cascade", "oos", "aggregate"]
 
 
 class Ctx:
@@ -157,6 +167,8 @@ class Ctx:
         self.attr_eval_8_out = f"{self.results}/attr_eval_8way_{self.variant}/"
         self.finetune_9_out = f"{self.results}/finetune_9way_{self.variant}_{self.augtag}/"
         self.attr_eval_9_out = f"{self.results}/attr_eval_9way_{self.variant}/"
+        self.ffhq_with_out = f"{self.results}/ffhq_ablation/with_ffhq/"
+        self.ffhq_without_out = f"{self.results}/ffhq_ablation/without_ffhq/"
         # Primary aliases used by robustness/GAN-fp compatibility paths.
         self.finetune_out = self.finetune_8_out
         self.attr_eval_out = self.attr_eval_8_out
@@ -174,6 +186,7 @@ class Ctx:
         self.test_index = f"{self.results}/test_index.csv"
         self.perturbations = _perturbation_names(self.cfg)
         self.fake_classes = _declared_fake_classes(self.cfg)
+        self.real_classes = _declared_real_classes(self.cfg)
 
     def s(self, name):
         return os.path.join(SCRIPTS, name)
@@ -286,6 +299,43 @@ def stage_attribution(c):
               "--out_dir", f"{c.results}/logo_8way_{c.variant}_{c.augtag}/",
               "--features_cache", c.feats, "--captions_csv", c.captions,
               "--device", c.device]),
+    ]
+
+
+def stage_ffhq_ablation(c):
+    """Professor-requested diagnostic: source-specific real labels, with vs without FFHQ."""
+    with_classes = c.fake_classes + c.real_classes
+    without_classes = c.fake_classes + [r for r in c.real_classes if r != "FFHQ"]
+    return [
+        _step("FFHQ ablation: train source-specific head with FFHQ",
+              [c.py, c.s("finetune_defake_head.py"), "--config", c.cfg,
+               "--index", c.index, "--class_mode", "fake_only",
+               "--jpeg_aug", c.jpeg_aug, "--out_dir", c.ffhq_with_out,
+               "--features_cache", c.feats, "--captions_csv", c.captions,
+               "--device", c.device, "--classes"] + with_classes),
+        _step("FFHQ ablation: evaluate fake rows with FFHQ",
+              [c.py, c.s("eval_defake_attribution.py"), "--config", c.cfg,
+               "--class_mode", "fake_only",
+               "--predictions", f"{c.ffhq_with_out}finetune_per_image.csv",
+               "--out_dir", f"{c.ffhq_with_out}fake_eval/",
+               "--pred_col", "pred_generator"]),
+        _step("FFHQ ablation: train source-specific head without FFHQ",
+              [c.py, c.s("finetune_defake_head.py"), "--config", c.cfg,
+               "--index", c.index, "--class_mode", "fake_only",
+               "--jpeg_aug", c.jpeg_aug, "--out_dir", c.ffhq_without_out,
+               "--features_cache", c.feats, "--captions_csv", c.captions,
+               "--device", c.device, "--classes"] + without_classes),
+        _step("FFHQ ablation: evaluate fake rows without FFHQ",
+              [c.py, c.s("eval_defake_attribution.py"), "--config", c.cfg,
+               "--class_mode", "fake_only",
+               "--predictions", f"{c.ffhq_without_out}finetune_per_image.csv",
+               "--out_dir", f"{c.ffhq_without_out}fake_eval/",
+               "--pred_col", "pred_generator"]),
+        _step("FFHQ ablation: paired fake-test comparison",
+              [c.py, c.s("compare_ffhq_ablation.py"), "--config", c.cfg,
+               "--with_ffhq", f"{c.ffhq_with_out}finetune_per_image.csv",
+               "--without_ffhq", f"{c.ffhq_without_out}finetune_per_image.csv",
+               "--out_dir", f"{c.results}/ffhq_ablation/"]),
     ]
 
 
@@ -418,6 +468,7 @@ def stage_aggregate(c):
 BUILDERS = {
     "index": stage_index, "variants": stage_variants, "confound": stage_confound,
     "detect": stage_detect, "dct": stage_dct, "attribution": stage_attribution,
+    "ffhq_ablation": stage_ffhq_ablation,
     "cascade": stage_cascade,
     "oos": stage_oos, "ganfp": stage_ganfp, "robustness": stage_robustness,
     "aggregate": stage_aggregate,

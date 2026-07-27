@@ -43,9 +43,9 @@ def main(args):
                 continue
             tag = os.path.relpath(os.path.dirname(path), args.results_dir)
             ov = data.get("overall", {})
-            lines.append("- %s: acc=%.3f balAcc=%.3f F1=%.3f%s" % (
+            lines.append("- %s: acc=%.3f balAcc=%.3f F1=%.3f kappa=%.3f%s" % (
                 tag, ov.get("accuracy", float("nan")), ov.get("balanced_accuracy", float("nan")),
-                ov.get("macro_f1", float("nan")),
+                ov.get("macro_f1", float("nan")), ov.get("cohen_kappa", float("nan")),
                 (" AUROC=%.3f" % ov["auroc"]) if "auroc" in ov else ""))
         lines.append("")
 
@@ -57,9 +57,9 @@ def main(args):
             data = _load(path) or {}
             tag = os.path.relpath(os.path.dirname(path), args.results_dir)
             t = data.get("test", {})
-            lines.append("- %s [%s]: balAcc=%.3f F1=%.3f%s" % (
+            lines.append("- %s [%s]: balAcc=%.3f F1=%.3f kappa=%.3f%s" % (
                 tag, data.get("mode", "?"), t.get("balanced_accuracy", float("nan")),
-                t.get("macro_f1", float("nan")),
+                t.get("macro_f1", float("nan")), t.get("cohen_kappa", float("nan")),
                 (" AUROC=%.3f" % t["auroc"]) if "auroc" in t else ""))
         lines.append("")
 
@@ -75,9 +75,10 @@ def main(args):
             for split_name in ("in_set", "out_of_set", "all_fakes", "test"):
                 res = data.get(split_name)
                 if isinstance(res, dict) and "top1_accuracy" in res:
-                    lines.append("- %s [%s]: top1=%.3f macroF1=%.3f balAcc=%.3f" % (
+                    lines.append("- %s [%s]: top1=%.3f macroF1=%.3f balAcc=%.3f "
+                                 "kappa=%.3f" % (
                         tag, split_name, res["top1_accuracy"], res["macro_f1"],
-                        res["balanced_accuracy"]))
+                        res["balanced_accuracy"], res.get("cohen_kappa", float("nan"))))
         lines.append("")
 
     logo = sorted(glob.glob(os.path.join(args.results_dir, "**", "logo_summary.json"),
@@ -119,10 +120,29 @@ def main(args):
             end_to_end = known.get("end_to_end_attribution") or {}
             lines.append(
                 "- %s: known-fake n=%d detected=%d conditionalTop1=%.3f "
-                "endToEndTop1=%.3f" % (
+                "conditionalKappa=%.3f endToEndTop1=%.3f endToEndKappa=%.3f" % (
                     tag, known.get("n", 0), known.get("n_detected", 0),
                     conditional.get("top1_accuracy", float("nan")),
-                    end_to_end.get("top1_accuracy", float("nan"))))
+                    conditional.get("cohen_kappa", float("nan")),
+                    end_to_end.get("top1_accuracy", float("nan")),
+                    end_to_end.get("cohen_kappa", float("nan"))))
+        lines.append("")
+
+    ffhq = sorted(glob.glob(os.path.join(args.results_dir, "**", "ffhq_ablation.json"),
+                            recursive=True))
+    if ffhq:
+        lines += ["## FFHQ removal diagnostic", ""]
+        for path in ffhq:
+            data = _load(path) or {}
+            delta = data.get("delta_without_minus_with", {})
+            lines.append(
+                "- without-minus-with: top1=%+.3f balAcc=%+.3f kappa=%+.3f "
+                "StyleGAN3Recall=%+.3f StyleGAN3RealRate=%+.3f" % (
+                    delta.get("top1_accuracy", float("nan")),
+                    delta.get("balanced_accuracy", float("nan")),
+                    delta.get("cohen_kappa", float("nan")),
+                    delta.get("stylegan3_recall", float("nan")),
+                    delta.get("stylegan3_real_prediction_rate", float("nan"))))
         lines.append("")
 
     io_utils.ensure_dir(os.path.dirname(os.path.abspath(args.out)))

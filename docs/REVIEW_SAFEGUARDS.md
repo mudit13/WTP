@@ -29,13 +29,17 @@ define the current class space; that authority belongs to the latest professor f
 - The provided DE-FAKE checkpoint is binary only.
 - Multi-class attribution is produced by this project's fine-tuned frozen-CLIP/BLIP head.
 - DCT-SVM is linear and must reuse the shared fixed test boundary.
+- Preserve the original source-specific attribution result and compare it with a matched
+  source-specific run that removes FFHQ; do not replace or discard the earlier condition.
 - LOGO must train only on the declared class space minus the held-out target.
 - OpenForensics-fake must never enter model fitting, including optional appendix methods.
 - GAN-fp must be described as Yu2019-inspired, not a byte-faithful reproduction.
 
 ## Evaluation safeguards
 
-- Report AUROC/AUPRC for binary detection and balanced accuracy/macro-F1 for classification.
+- Report AUROC/AUPRC for binary detection and balanced accuracy, macro-F1, and unweighted
+  Cohen's kappa for binary and nominal multi-class classification.
+- Bootstrap Cohen's kappa alongside the other headline metrics.
 - Include per-class support, recall, confusion matrices, and bootstrap confidence intervals.
 - Cluster bootstrap repeated img2img derivatives by identity.
 - Distinguish conditional attribution from end-to-end cascade accuracy.
@@ -43,6 +47,18 @@ define the current class space; that authority belongs to the latest professor f
 - For absent classes under LOGO/OOS, report forced-label distributions, confidence, entropy,
   and rejection performance rather than interpreting top-1 as an ordinary accuracy.
 - Never reuse historical metrics after taxonomy, index, split, or leakage-control changes.
+- Do not report Cohen's kappa for LOGO/OOS forced-label tests where the true class is absent
+  from the output space; kappa is not informative for that design.
+
+## FFHQ interpretation safeguards
+
+- The official NVIDIA FFHQ source documents automatic dlib alignment/cropping to 1024x1024 PNG.
+- Its reference alignment performs geometric resampling and may use reflected padding with
+  Gaussian-blurred boundary blending.
+- The official documentation does not identify a learned super-resolution stage. The meeting
+  suggestion about super-resolution was explicitly uncertain and must not be repeated as fact.
+- A performance change after removing FFHQ establishes sensitivity to the FFHQ class/training
+  population, not a causal explanation from preprocessing alone.
 
 ## Reproducibility safeguards
 

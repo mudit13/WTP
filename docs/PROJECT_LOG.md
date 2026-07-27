@@ -1021,3 +1021,36 @@ condition precisely and treat a multi-source img2img dataset as the stronger fut
 **Status:** code and local CPU tests can be validated locally. SD1.5 img2img generation, sidecar
 creation, index rebuilding, GPU fine-tuning, LOGO, cascade scoring, and all new report numbers are
 pending the server run. Historical `results/REPORT_SUMMARY.md` remains non-authoritative.
+
+## 25. Meeting transcript follow-up: Cohen's kappa and FFHQ ablation (2026-07-27)
+
+**Source:** The final-meeting transcript explicitly recommended Cohen's kappa for imbalanced
+multi-class evaluation and requested retaining the current attribution result while comparing it
+against a run with FFHQ removed. The same discussion proposed DCT detection followed by fake-only
+DE-FAKE attribution, expansion of GAN classes in DE-FAKE, and de-prioritizing GAN-fp; those latter
+items were already implemented in section 24.
+
+**Implemented:**
+
+- Added unweighted Cohen's kappa to binary detection, multi-class attribution, auxiliary joint
+  classification, conditional cascade attribution, and end-to-end cascade metrics.
+- Added stratified/identity-clustered bootstrap intervals for kappa and kappa aggregation across
+  the attribution seed sweep.
+- Kappa is deliberately not reported as a LOGO/OOS headline metric because the true held-out
+  class is absent from the prediction space; forced-label and rejection metrics remain correct.
+- Added a matched source-specific attribution diagnostic: one head trains on all eight fakes plus
+  London-DB, FFHQ, CelebA, and OpenForensics-real; the second removes FFHQ. Content-stable splitting
+  guarantees identical fake test paths. The paired output compares fake-only top-1, balanced
+  accuracy, kappa, StyleGAN3 recall, and StyleGAN3-to-real assignment rate.
+- Both FFHQ conditions are retained. The ablation is diagnostic and does not replace the primary
+  eight-way fake-only head or the auxiliary merged-Real head.
+
+**FFHQ provenance check:** NVIDIA's official FFHQ repository describes 70,000 Flickr images
+automatically aligned and cropped with dlib into 1024x1024 PNG. Its reference implementation uses
+geometric resampling and can synthesize boundary padding by reflection plus Gaussian-blurred
+blending. No official evidence was found for a learned super-resolution stage. The meeting
+suggestion was explicitly uncertain, so the report must not state super-resolution as fact.
+
+**Interpretation guard:** If removing FFHQ changes StyleGAN3 behavior, that establishes sensitivity
+to the FFHQ label/training population. It does not isolate alignment, padding, resampling, or any
+other preprocessing operation as the causal mechanism.

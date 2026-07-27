@@ -80,7 +80,7 @@ def main(args):
             "mode": mode,
             "real_mask": np.isin(generator, list(real_generators)) & in_mask,
             "fake_classes": [c for c in classes
-                             if c != attribution_taxonomy.real_class_name(config)],
+                             if c in attribution_taxonomy.fake_generators(config)],
         }
     else:
         try:

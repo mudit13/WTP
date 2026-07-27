@@ -107,7 +107,7 @@ ordinary top-1 is zero by construction because the held-out class is absent.
 - Clean evaluation features
 - Primary and auxiliary class spaces declared before training
 - Per-class support reported
-- Bootstrap 95% confidence intervals
+- Bootstrap 95% confidence intervals, including unweighted Cohen's kappa
 - Ten-seed sensitivity analysis
 
 ## 7. Results
@@ -122,13 +122,13 @@ ordinary top-1 is zero by construction because the held-out class is absent.
 ### 7.2 Binary detection
 
 - DCT-SVM and pretrained DE-FAKE
-- Balanced accuracy, macro-F1, AUROC, AUPRC
+- Balanced accuracy, macro-F1, unweighted Cohen's kappa, AUROC, AUPRC
 - Per-generator fake recall
 - OpenForensics-fake challenge with paired-real exclusion count
 
 ### 7.3 Primary eight-way attribution
 
-- Top-1, balanced accuracy, macro-F1
+- Top-1, balanced accuracy, macro-F1, and unweighted Cohen's kappa
 - Per-class recall and support
 - Confusion matrix using qualified display names
 - Bootstrap interval and seed-sweep variation
@@ -138,7 +138,20 @@ ordinary top-1 is zero by construction because the held-out class is absent.
 - Same metrics with one merged Real class
 - Compare only as a sensitivity analysis; do not replace the primary result.
 
-### 7.5 LOGO
+### 7.5 Professor-requested FFHQ removal diagnostic
+
+- Train one source-specific head on eight fakes + London-DB/FFHQ/CelebA/OpenForensics-real.
+- Train the matched head without FFHQ.
+- Evaluate both on the identical fake-generator test paths.
+- Compare overall fake-only top-1, balanced accuracy, Cohen's kappa, StyleGAN3 recall, and the
+  fraction of StyleGAN3 predictions assigned to a real source.
+- Retain both conditions. A difference demonstrates FFHQ sensitivity, not that a particular
+  preprocessing operation caused the difference.
+- Cite the official FFHQ pipeline: dlib alignment/cropping, geometric resampling, and optional
+  reflected/blurred boundary padding. Do not claim learned super-resolution; no official
+  evidence for such a stage was found.
+
+### 7.6 LOGO
 
 - One row per held-out generator
 - Forced-label distribution
@@ -146,16 +159,19 @@ ordinary top-1 is zero by construction because the held-out class is absent.
 - Rejection/false-known rates
 - Family-level overlap patterns
 
-### 7.6 End-to-end cascade
+Do not report Cohen's kappa for LOGO because the held-out true class is absent from predictions.
+
+### 7.7 End-to-end cascade
 
 - Detection recall on known fakes
 - Attribution accuracy conditional on detection
 - End-to-end correct attribution
+- Conditional and end-to-end Cohen's kappa
 - Undetected fakes
 - Per-generator end-to-end recall
 - Real false positives and their forced generator labels
 
-### 7.7 OpenForensics-fake
+### 7.8 OpenForensics-fake
 
 - Detection recall
 - Forced attribution distribution after detection

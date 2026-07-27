@@ -75,11 +75,19 @@ def _strat_group_resample(strat, groups, rng):
 
 
 def bootstrap_detection(df, n_boot, seed, logger):
-    y_true = schema.is_fake_label(df[schema.LABEL]).astype(int).to_numpy()
-    y_pred = schema.is_fake_predict(df[schema.DEFAKE_PREDICT]).astype(int).to_numpy()
+    if schema.LABEL in df.columns and schema.DEFAKE_PREDICT in df.columns:
+        y_true = schema.is_fake_label(df[schema.LABEL]).astype(int).to_numpy()
+        y_pred = schema.is_fake_predict(df[schema.DEFAKE_PREDICT]).astype(int).to_numpy()
+        score_col = schema.PROB_FAKE
+    elif {"y_true", "pred"}.issubset(df.columns):
+        y_true = pd.to_numeric(df["y_true"], errors="raise").astype(int).to_numpy()
+        y_pred = pd.to_numeric(df["pred"], errors="raise").astype(int).to_numpy()
+        score_col = "score"
+    else:
+        raise SystemExit("Detection input needs label/defake_predict or y_true/pred columns.")
     y_score = None
-    if schema.PROB_FAKE in df.columns and df[schema.PROB_FAKE].notna().any():
-        y_score = pd.to_numeric(df[schema.PROB_FAKE], errors="coerce").to_numpy()
+    if score_col in df.columns and df[score_col].notna().any():
+        y_score = pd.to_numeric(df[score_col], errors="coerce").to_numpy()
     rng = np.random.default_rng(seed)
 
     def _m(idx):
@@ -87,7 +95,7 @@ def bootstrap_detection(df, n_boot, seed, logger):
         return metrics.detection_metrics(y_true[idx], y_pred[idx], sc)
 
     full = _m(np.arange(len(y_true)))
-    keys = ["balanced_accuracy", "macro_f1", "accuracy"]
+    keys = ["balanced_accuracy", "macro_f1", "accuracy", "cohen_kappa"]
     if "auroc" in full:
         keys += ["auroc", "auprc"]
     dist = {k: [] for k in keys}
@@ -102,8 +110,13 @@ def bootstrap_detection(df, n_boot, seed, logger):
     per_gen = {}
     if schema.GENERATOR in df.columns:
         for g, grp in df.groupby(schema.GENERATOR):
-            gy = schema.is_fake_label(grp[schema.LABEL]).astype(int).to_numpy()
-            gp = schema.is_fake_predict(grp[schema.DEFAKE_PREDICT]).astype(int).to_numpy()
+            if schema.LABEL in grp.columns:
+                gy = schema.is_fake_label(grp[schema.LABEL]).astype(int).to_numpy()
+                gp = schema.is_fake_predict(
+                    grp[schema.DEFAKE_PREDICT]).astype(int).to_numpy()
+            else:
+                gy = pd.to_numeric(grp["y_true"], errors="raise").astype(int).to_numpy()
+                gp = pd.to_numeric(grp["pred"], errors="raise").astype(int).to_numpy()
             correct = (gy == gp).astype(int)
             gidx = np.arange(len(correct))
             reps = [float(correct[rng.choice(gidx, size=len(gidx), replace=True)].mean())
@@ -135,7 +148,7 @@ def bootstrap_attribution(df, n_boot, seed, subset, true_col, pred_col, group_co
                     group_col, len(np.unique(groups)))
 
     full = metrics.attribution_metrics(y_true, y_pred, labels=labels)
-    keys = ["top1_accuracy", "macro_f1", "balanced_accuracy"]
+    keys = ["top1_accuracy", "macro_f1", "balanced_accuracy", "cohen_kappa"]
     dist = {k: [] for k in keys}
     pc_dist = {str(l): [] for l in labels}
     for _ in range(n_boot):
@@ -165,7 +178,8 @@ def bootstrap_attribution(df, n_boot, seed, subset, true_col, pred_col, group_co
 def _detect_mode(df, forced):
     if forced != "auto":
         return forced
-    if schema.DEFAKE_PREDICT in df.columns and schema.LABEL in df.columns:
+    if ((schema.DEFAKE_PREDICT in df.columns and schema.LABEL in df.columns)
+            or {"y_true", "pred"}.issubset(df.columns)):
         return "detection"
     if "true_generator" in df.columns and "pred_generator" in df.columns:
         return "attribution"

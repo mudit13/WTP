@@ -2,9 +2,9 @@
 Evaluation metrics for detection, attribution, out-of-set behavior, and robustness.
 
 Detection (binary real-vs-fake):
-    AUROC, AUPRC, balanced accuracy, accuracy, precision, recall, macro-F1.
+    AUROC, AUPRC, balanced accuracy, accuracy, precision, recall, macro-F1, Cohen's kappa.
 Attribution (multi-class generator id):
-    top-1 accuracy, macro-F1, balanced accuracy, per-class report, confusion matrix.
+    top-1 accuracy, macro-F1, balanced accuracy, Cohen's kappa, per-class report, confusion matrix.
 Out-of-set:
     predictive entropy, false-known rate (forced confident known-class assignment).
 Robustness:
@@ -21,6 +21,7 @@ from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
     balanced_accuracy_score,
+    cohen_kappa_score,
     confusion_matrix,
     f1_score,
     precision_score,
@@ -45,6 +46,7 @@ def detection_metrics(y_true: Sequence[int],
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
         "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
+        "cohen_kappa": float(cohen_kappa_score(y_true, y_pred)),
         "n": int(len(y_true)),
     }
     if y_score is not None and len(np.unique(y_true)) == 2:
@@ -83,6 +85,7 @@ def attribution_metrics(y_true: Sequence,
         "top1_accuracy": float(accuracy_score(y_true, y_pred)),
         "macro_f1": macro_f1,
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
+        "cohen_kappa": float(cohen_kappa_score(y_true, y_pred)),
         "labels": [str(x) for x in labels],
         "confusion_matrix": cm.tolist(),
         "per_class": per_class,
@@ -120,6 +123,7 @@ def attribution_slice(y_true: Sequence,
     if len(yt) == 0:
         return {
             "top1_accuracy": 0.0, "macro_f1": 0.0, "balanced_accuracy": 0.0,
+            "cohen_kappa": 0.0,
             "labels": slice_labels, "confusion_matrix": [[0] * len(slice_labels)] * len(slice_labels),
             "per_class": {str(l): {"support": 0, "recall": 0.0} for l in slice_labels},
             "n": 0,

@@ -1054,3 +1054,10 @@ suggestion was explicitly uncertain, so the report must not state super-resoluti
 **Interpretation guard:** If removing FFHQ changes StyleGAN3 behavior, that establishes sensitivity
 to the FFHQ label/training population. It does not isolate alignment, padding, resampling, or any
 other preprocessing operation as the causal mechanism.
+
+**Img2img pilot follow-up:** Eye distortions persisted at strength 0.2 under CFG 5.5, 7.0, and
+8.5, so strength/CFG were not treated as the sole cause. `generate_sd15_img2img.py` now accepts
+`--prompt` and `--negative_prompt` overrides and records them verbatim in the immutable manifest
+and per-image metadata. This enables a same-identity, same-seed minimal-prompt pilot without an
+untracked one-off server script. Prompt selection remains a train-identity feasibility check,
+not final-test optimization.

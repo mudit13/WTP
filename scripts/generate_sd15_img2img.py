@@ -92,8 +92,8 @@ def _manifest(args, source_count, source_pool_count):
         "purpose": args.purpose,
         "model_id": args.model_id,
         "revision": args.revision or "<default-repository-revision>",
-        "prompt": PROMPT,
-        "negative_prompt": NEGATIVE_PROMPT,
+        "prompt": args.prompt,
+        "negative_prompt": args.negative_prompt,
         "strength": args.strength,
         "steps": args.steps,
         "cfg": args.cfg,
@@ -202,8 +202,8 @@ def main(args):
                                     method=resampling, centering=(0.5, 0.5))
             generator = torch.Generator("cuda").manual_seed(seed)
             image = pipe(
-                prompt=PROMPT,
-                negative_prompt=NEGATIVE_PROMPT,
+                prompt=args.prompt,
+                negative_prompt=args.negative_prompt,
                 image=init,
                 strength=args.strength,
                 num_inference_steps=args.steps,
@@ -224,8 +224,8 @@ def main(args):
                 "source_identity": _safe_stem(source),
                 "source_index": source_index,
                 "source_repeat": source_repeat,
-                "prompt": PROMPT,
-                "negative_prompt": NEGATIVE_PROMPT,
+                "prompt": args.prompt,
+                "negative_prompt": args.negative_prompt,
                 "strength": args.strength,
                 "seed": seed,
                 "steps": args.steps,
@@ -256,6 +256,10 @@ if __name__ == "__main__":
                         default=os.path.join(root, "dataset", "sd15_img2img"))
     parser.add_argument("--model_cache", default=os.path.join(root, "models"))
     parser.add_argument("--model_id", default=MODEL_ID)
+    parser.add_argument("--prompt", default=PROMPT,
+                        help="Positive prompt; stored verbatim in manifest and metadata.")
+    parser.add_argument("--negative_prompt", default=NEGATIVE_PROMPT,
+                        help="Negative prompt; stored verbatim in manifest and metadata.")
     parser.add_argument("--revision", default=os.environ.get("WTP_SD15_REVISION"),
                         help="Pinned Hugging Face commit/revision. Strongly recommended.")
     parser.add_argument("--purpose", choices=["authoritative", "pilot"],

@@ -1,31 +1,94 @@
-# Scientific report outline
+# Final scientific report outline
 
-Use only evidence from one professor-aligned immutable run. Do not reuse metrics from the
-superseded 7-class experiment.
+Target: approximately 15 pages excluding references and appendix. Use only evidence from
+authoritative run `2026-08-01_eightway_v1`; superseded 7-class and historical GAN-fp metrics are
+not final evidence.
 
-## 1. Introduction
+Primary writing sources:
 
-- Problem: detect fake face images, then attribute detected fakes to their generator.
-- RQ1: How well does log-DCT with a linear SVM detect fake faces? How does the provided
-  pretrained binary DE-FAKE baseline compare?
-- RQ2: How well can a fine-tuned DE-FAKE head distinguish eight fake generators?
-- RQ3: What happens when one generator is omitted from training, and how does this affect the
-  end-to-end cascade?
+- `docs/DATA_PROVENANCE.md`
+- `docs/EXPERIMENT_CATALOG.md`
+- `report/AUTHORITATIVE_RESULTS_DRAFT.md`
+- Extracted immutable evidence under `results/2026-08-01_eightway_v1_evidence/`
 
-## 2. Related work
+## Abstract — approximately 0.5 page
 
-- DE-FAKE: CLIP/BLIP-based binary detection and attribution framework.
-- Frank et al.: frequency-domain log-DCT detection.
-- DFFD and the included FaceApp/PGGAN/StarGAN subsets.
-- StyleGAN3, Stable Diffusion 1.5, and FLUX.1-schnell.
-- GAN Fingerprints only as appendix context.
+- Detection-versus-attribution problem
+- Eight fake-generator classes and external OpenForensics-fake challenge
+- Sequential DCT-SVM → fine-tuned DE-FAKE pipeline
+- Main detection, attribution and cascade metrics
+- Main conclusion: strong known-class attribution but detection/OOS bottleneck
 
-## 3. Dataset
+## 1. Introduction — 1–1.5 pages
 
-### 3.1 Fake attribution classes
+### 1.1 Motivation
+
+- AI-generated and manipulated face images
+- Difference between detecting a fake and attributing its source
+- Why a sequential detector→attributor is operationally meaningful
+
+### 1.2 Research questions
+
+- **RQ1:** How effectively do DCT-SVM and pretrained binary DE-FAKE detect fake face images,
+  including an unseen manipulation dataset?
+- **RQ2:** How accurately can a fine-tuned DE-FAKE head attribute known fake images to eight
+  generator/source classes?
+- **RQ3:** How does the sequential DCT→DE-FAKE system generalize under LOGO, external OOS data and
+  perturbations?
+
+### 1.3 Contributions
+
+- Reconstructed eight-label fake-source benchmark with documented provenance
+- Added London-DB-based SD1.5 img2img class with identity grouping
+- Confound-controlled preprocessing and split-integrity safeguards
+- DCT detection, eight-way DE-FAKE attribution and end-to-end cascade
+- LOGO/external OOS analysis with Cohen’s κ, CIs and seed sensitivity
+- FFHQ, image-only and robustness diagnostics explaining failure modes
+
+Do not claim a novel model architecture; the contribution is a controlled evaluation, dataset
+design and failure analysis.
+
+## 2. Background and Related Work — 1–1.5 pages
+
+### 2.1 Generator and manipulation families
+
+- GAN synthesis: PGGAN, StyleGAN3
+- Diffusion synthesis: SD1.5, FLUX
+- Face translation/manipulation: StarGAN, FaceApp, OpenForensics
+
+Keep this task-specific; do not provide a broad tutorial on AI model types.
+
+### 2.2 Detection and attribution
+
+- DE-FAKE and CLIP/BLIP representations
+- Frank et al. log-DCT frequency detection
+- Closed-set attribution, OOS rejection and LOGO
+
+### 2.3 Relevant datasets
+
+- DFFD, FFHQ, CelebA, London-DB and OpenForensics
+- GAN-fp mentioned only as optional historical context
+
+## 3. Dataset Design and Construction — 2–2.5 pages
+
+Use `docs/DATA_PROVENANCE.md` as the factual authority.
+
+### 3.1 Design goals
+
+- Eight mutually named fake-source classes
+- Optional merged Real class
+- OpenForensics-fake test-only
+- Balanced support where feasible
+- Measured confound reduction
+- Source/identity leakage control
+- Reproducible generation and indexing
+
+### 3.2 Label taxonomy and class counts
+
+Fake classes:
 
 1. SD1.5 txt2img
-2. SD1.5 img2img (London-DB, strength=0.6)
+2. SD1.5 img2img (London-DB, strength 0.6)
 3. FLUX.1-schnell
 4. StyleGAN3-FFHQ
 5. FaceApp
@@ -33,189 +96,213 @@ superseded 7-class experiment.
 7. PGGAN-v2
 8. StarGAN
 
-### 3.2 Real data
+Real sources: London-DB, FFHQ, CelebA and OpenForensics-real. External OOS:
+OpenForensics-fake.
 
-- London-DB
-- FFHQ
-- CelebA
-- OpenForensics-real
+Include one compact table: source, role, count, native format/resolution and train/test use.
 
-Real data trains the DCT detector and the auxiliary joint attribution model. The joint model
-collapses all four sources into one source-balanced `real` class.
+### 3.3 Generated dataset construction
 
-### 3.3 Test-only data
+- SD1.5 txt2img prompts, seeds, steps and guidance
+- FLUX shared prompts, seeds and four-step schnell configuration
+- StyleGAN3 official FFHQ checkpoint, seeds, truncation and resize
+- SD1.5 img2img London inputs, pinned revision, strength/CFG/steps, fixed prompt and grouping
+- Persistent eye artifacts retained without cherry-picking
 
-OpenForensics-fake is never used for fitting. Its paired real source crops are excluded from the
-DCT OOS training population.
+Prompt details belong here, not in a standalone chapter.
 
-### 3.4 Generation provenance
+### 3.4 Preprocessing and confound control
 
-For every generated class, report model/checkpoint revision, prompts, negative prompt, seeds,
-steps, guidance, dimensions, source preprocessing, and output count. For StyleGAN3 report the
-official FFHQ checkpoint and truncation psi. Include generated datasheets and licenses.
+- Aspect-preserving resize/center crop to 256 and PNG export
+- Training-only JPEG augmentation
+- Raw metadata separability versus chance after normalization
+- Content-stable split and source-group sidecars
+- Zero group straddles and zero exact duplicates
 
-## 4. Confound and leakage controls
+### 3.5 Dataset-specific threats
 
-- Raw metadata-only separability
-- Aspect-preserving 256-pixel headline variant
-- Scaled/squashed comparison
-- Training-only JPEG augmentation with clean validation/test
-- Content-hashed feature caches
-- London/img2img identity sidecar
-- OpenForensics source-photo sidecar
-- Runtime no-group-straddle assertions
-- Exact and perceptual duplicate audit
+- Different face pools across labels
+- London-only/fixed-prompt img2img narrowness
+- DFFD upstream settings not fully available
+- OpenForensics as one manipulation benchmark
 
-State that normalization controls known format/geometry cues but cannot prove that all
-content-related confounds are removed.
+## 4. Methodology — 2–2.5 pages
 
-## 5. Methods
+### 4.1 Overall design
 
-### 5.1 Detection
+- Corrected sequential architecture diagram
+- Primary fake-only task versus auxiliary merged-Real task
 
-- Primary: log-DCT features plus balanced linear SVM
-- Baseline: provided pretrained binary DE-FAKE checkpoint
-- Shared fixed test boundary
-- OpenForensics-fake held-out challenge
+### 4.2 Binary detection
 
-### 5.2 Attribution
+- Log-DCT 128×128 grayscale features and linear SVM
+- Training-only JPEG features and clean test features
+- Pretrained binary DE-FAKE external baseline
+- Fairness caveat: in-domain supervised versus externally pretrained
 
-- Frozen CLIP image and BLIP-caption features
-- Small fine-tuned MLP head
-- Primary eight-fake class space
-- Auxiliary nine-way class space with merged Real
-- Balanced checkpoint selection
+### 4.3 Eight-way DE-FAKE attribution
 
-Clarify that the provided DE-FAKE checkpoint is binary; the multi-class head is trained by this
-project.
+- Frozen CLIP ViT-B/32 image features
+- BLIP caption text features
+- 1024-dimensional concatenated representation
+- MLP head, class weighting and validation-based checkpoint selection
+- Auxiliary nine-way merged-Real model
 
-### 5.3 Cascade
+Fine-tuning belongs here, not as a standalone top-level chapter.
 
-DCT predicts real/fake first. Only a fake decision can receive a generator attribution.
-Undetected known fakes count as end-to-end attribution failures.
+### 4.4 Sequential cascade
 
-### 5.4 LOGO
+- DCT fake gate
+- Conditional attribution
+- Undetected fakes counted as end-to-end failures
 
-Run eight folds. Each fold removes exactly one fake generator and trains on the other seven.
-OpenForensics-fake remains excluded. Report forced labels, confidence, entropy, and rejection;
-ordinary top-1 is zero by construction because the held-out class is absent.
+### 4.5 Generalization analyses
 
-## 6. Experimental protocol
+- Eight-fold LOGO
+- OpenForensics-fake forced-label/confidence analysis
+- Confidence, entropy and false-known rates
 
-- Immutable run ID, git commit, config hash, seed 42
-- Group-aware train/validation/test split
-- Clean evaluation features
-- Primary and auxiliary class spaces declared before training
-- Per-class support reported
-- Bootstrap 95% confidence intervals, including unweighted Cohen's kappa
-- Ten-seed sensitivity analysis
+## 5. Experimental Design — 1–1.5 pages
 
-## 7. Results
+### 5.1 Splits and reproducibility
 
-### 7.1 Dataset and confound checks
+- Seed 42, attribution 70/10/20, DCT fixed 80/20 with shared test boundary
+- Group-aware source identities
+- Run ID, commit and config hash
 
-- Counts by source and class
-- Resolution/format distributions
-- Metadata-only classifier before and after normalization
-- Group and duplicate audit results
+### 5.2 Metrics and uncertainty
 
-### 7.2 Binary detection
+- Detection: balanced accuracy, macro-F1, AUROC/AUPRC, Cohen’s κ
+- Attribution: top-1, balanced accuracy, macro-F1, κ and per-class recall
+- Bootstrap 95% CIs
+- Ten-seed sweep
+- Paired bootstrap and McNemar test
 
-- DCT-SVM and pretrained DE-FAKE
-- Balanced accuracy, macro-F1, unweighted Cohen's kappa, AUROC, AUPRC
-- Per-generator fake recall
-- OpenForensics-fake challenge with paired-real exclusion count
+### 5.3 Supporting studies
 
-### 7.3 Primary eight-way attribution
+- FFHQ removal
+- Image-only CLIP versus image+BLIP
+- JPEG, blur, resize and sharpen robustness
+- Split-integrity audit
 
-- Top-1, balanced accuracy, macro-F1, and unweighted Cohen's kappa
-- Per-class recall and support
-- Confusion matrix using qualified display names
-- Bootstrap interval and seed-sweep variation
+## 6. Results — 3–3.5 pages
 
-### 7.4 Auxiliary nine-way classification
+Use `report/AUTHORITATIVE_RESULTS_DRAFT.md` for exact values and wording.
 
-- Same metrics with one merged Real class
-- Compare only as a sensitivity analysis; do not replace the primary result.
+### 6.1 Detection and unseen-manipulation generalization
 
-### 7.5 Professor-requested FFHQ removal diagnostic
+- DCT versus pretrained DE-FAKE on shared test rows
+- Significant balanced-accuracy difference but non-significant AUROC difference
+- DCT OpenForensics-fake below-chance OOS result
 
-- Train one source-specific head on eight fakes + London-DB/FFHQ/CelebA/OpenForensics-real.
-- Train the matched head without FFHQ.
-- Evaluate both on the identical fake-generator test paths.
-- Compare overall fake-only top-1, balanced accuracy, Cohen's kappa, StyleGAN3 recall, and the
-  fraction of StyleGAN3 predictions assigned to a real source.
-- Retain both conditions. A difference demonstrates FFHQ sensitivity, not that a particular
-  preprocessing operation caused the difference.
-- Cite the official FFHQ pipeline: dlib alignment/cropping, geometric resampling, and optional
-  reflected/blurred boundary padding. Do not claim learned super-resolution; no official
-  evidence for such a stage was found.
+### 6.2 Primary eight-way attribution
 
-### 7.6 LOGO
+- Fixed-seed metrics with bootstrap intervals
+- Eight-way confusion matrix
+- Per-class PGGAN/FaceApp weaknesses
+- Fixed-seed versus ten-seed mean
 
-- One row per held-out generator
-- Forced-label distribution
-- Mean confidence and entropy
-- Rejection/false-known rates
-- Family-level overlap patterns
+### 6.3 Sequential cascade
 
-Do not report Cohen's kappa for LOGO because the held-out true class is absent from predictions.
+- Detection pass rate
+- Conditional versus end-to-end attribution
+- Per-generator detection bottlenecks
+- Real false positives
 
-### 7.7 End-to-end cascade
+### 6.4 LOGO and external OOS
 
-- Detection recall on known fakes
-- Attribution accuracy conditional on detection
-- End-to-end correct attribution
-- Conditional and end-to-end Cohen's kappa
-- Undetected fakes
-- Per-generator end-to-end recall
-- Real false positives and their forced generator labels
+- Dominant forced-label relationships
+- PGGAN-v1/v2 and SD1.5-mode overlap
+- OpenForensics confidence/entropy and false-known rates
+- No ordinary OOS top-1/κ claims
 
-### 7.8 OpenForensics-fake
+### 6.5 Supporting ablations
 
-- Detection recall
-- Forced attribution distribution after detection
-- Confidence, entropy, and rejection behavior
-- Explicit statement that no ordinary attribution accuracy exists for this unseen class
+- Auxiliary nine-way merged-Real result
+- FFHQ with/without diagnostic
+- Image-only versus image+BLIP
 
-## 8. Discussion
+### 6.6 Robustness
 
-- Which generator families overlap?
-- Does closed-set performance survive the DCT gate?
-- Which errors come from detection versus attribution?
-- How does LOGO behavior qualify closed-set accuracy?
-- Are observed patterns consistent across seeds and confidence intervals?
+- DCT blur/downscale weakness
+- Better AUROC preservation under JPEG and sharpening
+- Per-image instability caveat
 
-Avoid broad claims beyond face-centric generators and the exact checkpoints/settings tested.
+Ablations and robustness support the main RQs; they are not independent major chapters.
 
-## 9. Limitations
+## 7. Discussion and Threats to Validity — 1.5–2 pages
 
-- SD1.5 img2img is London-only and strength-specific. Identity grouping prevents leakage but
-  does not remove London-specific pose, lighting, background, or acquisition cues.
-- The img2img prompt fixes a frontal studio portrait, even lighting, and grey backdrop, making
-  that class visually homogeneous independently of generator artifacts.
-- Approximately 100 images per fake class yields small per-class test support.
-- CLIP+BLIP may exploit semantic content rather than purely forensic traces.
-- The generator set is face-centric and temporally/architecturally narrow.
-- Hyperparameters are not exhaustively optimized.
-- OpenForensics-fake is one manipulation benchmark, not universal OOS evidence.
-- The historical 10/300 same-photo coupling measurement does not apply to the primary fake-only
-  head (no reals are trained) or the DCT OOS challenge (paired reals are excluded). If auxiliary
-  nine-way OOS behavior is discussed, measure coupling on that run rather than quoting 10/300.
-- A closed-set head cannot identify an absent class without a rejection mechanism.
+### 7.1 Interpretation by research question
 
-## 10. Conclusion
+- RQ1: DCT operating-point advantage but weak OOS/blur generalization
+- RQ2: strong known-class source attribution with seed sensitivity
+- RQ3: family overlap and detector-limited cascade
 
-Answer RQ1-RQ3 directly, distinguish conditional from end-to-end results, and state whether the
-eight generators are separable under the tested conditions.
+### 7.2 Failure mechanisms
 
-## Appendix
+- Loss of frequency evidence under blur/downscale
+- PGGAN sibling overlap
+- StyleGAN3/FaceApp/FFHQ source-manifold sensitivity
+- Closed-set confidence on absent classes
 
-- Full class counts and datasheets
-- Complete confusion matrices and per-class intervals
-- Raw/scaled confound comparisons
-- Robustness perturbations if run
-- GAN-fp method history only (`docs/GANFP_HISTORICAL.md`), clearly optional and
-  Yu2019-inspired; do not quote superseded prototype metrics
-- Commands, run manifest, software versions, and AI-assistance disclosure
-- Experiment-to-script/output mapping from `docs/EXPERIMENT_CATALOG.md`
+### 7.3 Threats to validity
+
+- Approximately 20–27 test images per fake class
+- Small validation sets and checkpoint noise
+- Different source face pools
+- CLIP image embeddings remain semantic even without BLIP
+- London-only/fixed-prompt img2img
+- Hyperparameters not exhaustively optimized
+- One external OOS benchmark
+- DCT/DE-FAKE training-regime asymmetry
+- Unknown upstream DFFD parameters
+- dHash similarities are diagnostic, not exact leakage
+
+Do not repeat the Results section; explain what the results mean and what they cannot establish.
+
+## 8. Conclusion and Future Work — approximately 0.5 page
+
+- Answer RQ1–RQ3 directly
+- State the positive known-class attribution result
+- State detector/OOS limitations
+- Future multi-source img2img
+- Better open-set rejection
+- Larger balanced identity-diverse datasets
+- Optional forensic-signal control
+
+Do not create a separate long Future Work chapter.
+
+## Individual Contributions — approximately 0.5 page
+
+Each member must own practical methodology/evaluation work, not only literature:
+
+- Dataset generation/provenance/confounds
+- DCT detection/robustness
+- DE-FAKE attribution/statistics
+- LOGO/OOS/cascade
+- FFHQ/image-only ablations/reproducibility
+
+## Appendix — excluded from main page count
+
+- Full dataset provenance and generation prompts
+- Complete confusion matrices
+- Full LOGO distributions
+- Robustness tables
+- Image-only details
+- Split audit/dHash diagnostic
+- Run manifest, experiment catalog and commands
+- SD1.5 img2img pilot/eye-artifact documentation
+- GAN-fp method history without superseded prototype metrics
+- AI-assistance disclosure
+
+## Main-report figure/table plan
+
+1. Corrected pipeline diagram
+2. Compact dataset taxonomy/count table
+3. Paired detection comparison table
+4. Eight-way confusion matrix
+5. Cascade per-generator table
+6. LOGO dominant-label table
+7. In-set/OOS confidence histogram
+
+Keep nine-way/FFHQ confusion matrices and full robustness outputs in the appendix.

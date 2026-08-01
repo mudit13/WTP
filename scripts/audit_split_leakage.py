@@ -64,8 +64,9 @@ def _hamming(a, b):
 
 def _finetune_splits(index_csv, config, group_map_paths=None, logger=None,
                      class_mode=None):
-    """Reconstruct the in-set train/val/test split as finetune_defake_head.py does; out-of-set
-    generators are tagged `unseen`. Returns a DataFrame with a `split` column.
+    """Reconstruct the in-set train/val/test split as finetune_defake_head.py does; configured
+    OOS generators are tagged `unseen` and rows outside the selected class mode are `excluded`.
+    Returns a DataFrame with a `split` column.
 
     group_map_paths: explicit sidecar path(s), overriding auto-detection. IMPORTANT: auto-
     detection (io_utils.default_group_map_paths) builds the sidecar path from
@@ -90,7 +91,12 @@ def _finetune_splits(index_csv, config, group_map_paths=None, logger=None,
     in_mask = population["train_mask"]
     mapped_generator = population["mapped_generators"]
 
-    split = np.array(["unseen"] * len(df), dtype=object)
+    # Distinguish genuine OOS challenge rows from rows outside this class mode altogether.
+    # In fake-only mode, London/FFHQ/CelebA/OpenForensics-real are excluded, not "unseen".
+    # Treating every excluded real as unseen made each London real/img2img source group look
+    # like a train<->unseen straddle even though the real row never enters this head.
+    split = np.array(["excluded"] * len(df), dtype=object)
+    split[population["oos_mask"]] = "unseen"
     gi, pi = mapped_generator[in_mask], paths[in_mask]
     y = defake_head.encode_labels(gi, classes)
     # Group-aware reconstruction: MUST match finetune_defake_head.py's actual split (including
@@ -152,7 +158,10 @@ def main(args):
             lookup_map = io_utils.group_lookup_map_from_df(gdf)
             gdf["_group"] = io_utils.apply_group_map_with_lookup(
                 gdf[schema.PATH].astype(str).to_numpy(), lookup_map, group_map, logger=logger)
-            multi = gdf.groupby("_group").filter(lambda g: len(g) > 1)
+            # Group-straddle is a train/val/test invariant. Excluded and external-OOS rows are
+            # not split members; coupling to them is a separate OOS diagnostic.
+            active = gdf[gdf["split"].isin({"train", "val", "test"})].copy()
+            multi = active.groupby("_group").filter(lambda g: len(g) > 1)
             group_straddle["n_groups_checked"] = int(multi["_group"].nunique())
             for gid, grp in multi.groupby("_group"):
                 if grp["split"].nunique() > 1:
@@ -190,15 +199,16 @@ def main(args):
     logger.info("Hashed %d images (%d skipped)", len(rows), skipped)
 
     # Exact duplicates that span more than one split.
+    auditable_rows = [row for row in rows if row["split"] != "excluded"]
     by_sha = defaultdict(list)
-    for i, row in enumerate(rows):
+    for i, row in enumerate(auditable_rows):
         by_sha[row["sha"]].append(i)
     exact_cross = []
     for sha, idxs in by_sha.items():
-        splits = {rows[i]["split"] for i in idxs}
+        splits = {auditable_rows[i]["split"] for i in idxs}
         if len(idxs) > 1 and len(splits) > 1:
             exact_cross.append({"sha": sha,
-                                "paths": [rows[i]["path"] for i in idxs],
+                                "paths": [auditable_rows[i]["path"] for i in idxs],
                                 "splits": sorted(splits)})
 
     # Near-duplicates across DIFFERENT splits (Hamming <= threshold on dHash).
@@ -206,21 +216,24 @@ def main(args):
     # that train<->unseen bridge is exactly the population the out-of-set claims depend on.
     eval_splits = {"val", "test", "unseen"}
     near_cross = []
-    for i in range(len(rows)):
-        for j in range(i + 1, len(rows)):
-            if rows[i]["split"] == rows[j]["split"]:
+    for i in range(len(auditable_rows)):
+        for j in range(i + 1, len(auditable_rows)):
+            if auditable_rows[i]["split"] == auditable_rows[j]["split"]:
                 continue
             # Only care about pairs bridging an eval split and another split.
-            if not (rows[i]["split"] in eval_splits or rows[j]["split"] in eval_splits):
+            if not (auditable_rows[i]["split"] in eval_splits
+                    or auditable_rows[j]["split"] in eval_splits):
                 continue
-            d = _hamming(rows[i]["dhash"], rows[j]["dhash"])
+            d = _hamming(auditable_rows[i]["dhash"], auditable_rows[j]["dhash"])
             if d <= args.hamming:
                 near_cross.append({
                     "hamming": d,
-                    "a": {"path": rows[i]["path"], "split": rows[i]["split"],
-                          "generator": rows[i]["generator"]},
-                    "b": {"path": rows[j]["path"], "split": rows[j]["split"],
-                          "generator": rows[j]["generator"]},
+                    "a": {"path": auditable_rows[i]["path"],
+                          "split": auditable_rows[i]["split"],
+                          "generator": auditable_rows[i]["generator"]},
+                    "b": {"path": auditable_rows[j]["path"],
+                          "split": auditable_rows[j]["split"],
+                          "generator": auditable_rows[j]["generator"]},
                 })
     near_cross.sort(key=lambda x: x["hamming"])
 

@@ -1061,3 +1061,26 @@ other preprocessing operation as the causal mechanism.
 and per-image metadata. This enables a same-identity, same-seed minimal-prompt pilot without an
 untracked one-off server script. Prompt selection remains a train-identity feasibility check,
 not final-test optimization.
+
+## 26. Fake-only leakage audit: excluded real rows mislabeled as unseen (2026-08-01)
+
+**Observed:** The post-run fake-only audit reported 102/121 source groups straddling splits.
+Every example paired a correctly grouped SD1.5-img2img derivative in train/val/test with its
+London-DB original labeled `unseen`. The count exactly matched all 102 London identities.
+
+**Diagnosis:** This was an audit-reporting bug, not training leakage. The primary eight-way head
+excludes all real rows, but `_finetune_splits` initialized every non-training row as `unseen`.
+Group-straddle then compared actual split members against excluded London originals. Runtime
+split assertions had already passed, and exact cross-split duplicate count was zero.
+
+**Fix:** Non-training rows now default to `excluded`; only configured
+`out_of_set_generators` are `unseen`. Group-straddle checks only train/val/test members, while
+exact/near-duplicate OOS checks ignore excluded rows but retain true unseen rows. A regression
+test covers the fake-only RealSource=`excluded`, OOS-fake=`unseen` distinction.
+
+**Near-duplicate interpretation:** Of 3,051 dHash pairs, 2,538 were the expected
+London-source/img2img relationship. Among actual train/val/test rows, 420 pairs remained, mostly
+same-class aligned-face/template similarity (312 img2img, 30 FLUX). Only one cross-generator pair
+had Hamming distance <=3 (PGGAN-v2 vs StarGAN), and exact SHA-256 duplicates remained zero. This
+shows that 64-bit dHash is overly sensitive to shared aligned-face composition; it is not evidence
+of a duplicated file or shared source identity by itself.

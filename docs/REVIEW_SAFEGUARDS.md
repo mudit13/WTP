@@ -65,5 +65,7 @@ define the current class space; that authority belongs to the latest professor f
 - Require a unique run ID and record git commit/config hash.
 - Pin generator revisions/checkpoints.
 - Abort on missing classes, OOS/training overlap, group-map failure, or group straddling.
+- The default orchestrator must run exact-duplicate/group-straddle gates and uncertainty
+  estimation before producing the final aggregate summary.
 - Keep raw data, weights, environments, and generated results out of git.
 - Preserve historical reasoning in `PROJECT_LOG.md`, but use `PIPELINE.md` for commands.

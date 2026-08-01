@@ -84,6 +84,9 @@ matching the team's working `run_defake_batch.py`.
 Never use bare `python`. See `docs/PIPELINE.md` for the full run order and
 `report/REPORT_OUTLINE.md` for the report structure.
 
+The authoritative GPU runtime is Python 3.9. GitHub CI intentionally uses Python 3.11 for
+CPU-only compatibility smoke tests; it does not reproduce the CUDA/DE-FAKE environment.
+
 ## Security note (model/feature loading)
 
 A few load paths deserialize Python objects and will execute arbitrary code if the file is

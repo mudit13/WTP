@@ -192,11 +192,16 @@ Avoid broad claims beyond face-centric generators and the exact checkpoints/sett
 
 - SD1.5 img2img is London-only and strength-specific. Identity grouping prevents leakage but
   does not remove London-specific pose, lighting, background, or acquisition cues.
+- The img2img prompt fixes a frontal studio portrait, even lighting, and grey backdrop, making
+  that class visually homogeneous independently of generator artifacts.
 - Approximately 100 images per fake class yields small per-class test support.
 - CLIP+BLIP may exploit semantic content rather than purely forensic traces.
 - The generator set is face-centric and temporally/architecturally narrow.
 - Hyperparameters are not exhaustively optimized.
 - OpenForensics-fake is one manipulation benchmark, not universal OOS evidence.
+- The historical 10/300 same-photo coupling measurement does not apply to the primary fake-only
+  head (no reals are trained) or the DCT OOS challenge (paired reals are excluded). If auxiliary
+  nine-way OOS behavior is discussed, measure coupling on that run rather than quoting 10/300.
 - A closed-set head cannot identify an absent class without a rejection mechanism.
 
 ## 10. Conclusion
@@ -210,5 +215,7 @@ eight generators are separable under the tested conditions.
 - Complete confusion matrices and per-class intervals
 - Raw/scaled confound comparisons
 - Robustness perturbations if run
-- GAN-fp results, clearly labeled Yu2019-inspired and optional
+- GAN-fp method history only (`docs/GANFP_HISTORICAL.md`), clearly optional and
+  Yu2019-inspired; do not quote superseded prototype metrics
 - Commands, run manifest, software versions, and AI-assistance disclosure
+- Experiment-to-script/output mapping from `docs/EXPERIMENT_CATALOG.md`

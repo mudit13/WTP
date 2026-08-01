@@ -39,3 +39,16 @@ def test_finetune_audit_distinguishes_excluded_reals_from_true_oos(tmp_path):
     assert set(result.loc[result["generator"] == "OOS-fake", "split"]) == {"unseen"}
     assert set(result.loc[result["generator"].isin(["A", "B"]), "split"]) == {
         "train", "val", "test"}
+
+
+def test_leakage_gate_only_fails_enabled_hard_invariants():
+    audit = {
+        "exact_cross_split_duplicates": {"count": 2},
+        "group_straddle": {"n_groups_straddling": 1},
+        "near_cross_split_duplicates": {"count": 999},
+    }
+    assert audit_split_leakage._gate_failures(audit) == []
+    assert audit_split_leakage._gate_failures(
+        audit, fail_on_exact=True) == ["2 exact cross-split duplicate group(s)"]
+    assert audit_split_leakage._gate_failures(
+        audit, fail_on_group_straddle=True) == ["1 source group(s) straddling splits"]

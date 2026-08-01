@@ -94,3 +94,15 @@ def test_ffhq_ablation_trains_matched_source_specific_heads(tmp_path):
     assert "FFHQ" not in without_train
     assert all(fake in with_train and fake in without_train for fake in c.fake_classes)
     assert steps[-1]["cmd"][1].endswith("compare_ffhq_ablation.py")
+
+
+def test_rigor_is_default_and_enforces_leakage_gates_before_aggregate(tmp_path):
+    c = _ctx(tmp_path)
+    steps = re.stage_rigor(c)
+    assert len(steps) == 9
+    audit = steps[0]["cmd"]
+    assert audit[1].endswith("audit_split_leakage.py")
+    assert "--fail_on_exact" in audit
+    assert "--fail_on_group_straddle" in audit
+    assert "rigor" in re.DEFAULT_STAGES
+    assert re.DEFAULT_STAGES.index("rigor") < re.DEFAULT_STAGES.index("aggregate")

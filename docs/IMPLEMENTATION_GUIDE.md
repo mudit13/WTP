@@ -36,9 +36,11 @@ The default orchestrator produces:
 - Eight fake-generator LOGO folds
 - End-to-end DCT-to-attribution cascade metrics
 - OpenForensics-fake confidence/entropy analysis
+- Mandatory leakage gates, bootstrap intervals, paired significance, and seed sensitivity
 - One aggregated report summary
 
-GAN-fp and robustness are optional appendix stages.
+Robustness is an optional appendix stage. GAN-fp method history is preserved in
+`docs/GANFP_HISTORICAL.md`; superseded prototype metrics are not active report evidence.
 
 ## Scientific invariants
 

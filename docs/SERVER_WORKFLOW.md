@@ -87,9 +87,9 @@ Professor-aligned orchestrated runs require a unique immutable tag:
 
 ```bash
 nohup $WTP_PY_DEFAKE scripts/run_experiment.py \
-    --run_id 2026-07-20_eightway_v1 \
-    --stages index,variants,confound,detect,dct,attribution,cascade,oos,aggregate \
-    > logs/eightway_20260720.out 2>&1 &
+    --run_id 2026-08-01_eightway_v1 \
+    --stages index,variants,confound,detect,dct,attribution,ffhq_ablation,cascade,oos,rigor,aggregate \
+    > logs/eightway_20260801.out 2>&1 &
 ```
 
 ## 6. Data hygiene before every batch

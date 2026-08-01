@@ -20,7 +20,7 @@ Examples:
       --stages attribution,oos
   # include the heavy stages too:
   python scripts/run_experiment.py --run_id eightway_v1 \
-      --stages index,variants,confound,detect,dct,attribution,ffhq_ablation,cascade,oos,aggregate
+      --stages index,variants,confound,detect,dct,attribution,ffhq_ablation,cascade,oos,rigor,aggregate
 """
 import argparse
 import hashlib
@@ -126,10 +126,11 @@ def _perturbation_names(config_path):
 
 ALL_STAGES = ["index", "variants", "confound", "detect", "dct",
               "attribution", "ffhq_ablation", "cascade", "oos",
-              "ganfp", "robustness", "aggregate"]
+              "rigor", "ganfp", "robustness", "aggregate"]
 # Default = the confound-controlled headline path. ganfp + robustness are heavy -> opt in.
 DEFAULT_STAGES = ["index", "variants", "confound", "detect", "dct",
-                  "attribution", "ffhq_ablation", "cascade", "oos", "aggregate"]
+                  "attribution", "ffhq_ablation", "cascade", "oos",
+                  "rigor", "aggregate"]
 
 
 class Ctx:
@@ -361,6 +362,50 @@ def stage_oos(c):
             f"nine_way={c.finetune_9_out}finetune_per_image.csv"])]
 
 
+def stage_rigor(c):
+    """Mandatory post-model gates and uncertainty estimates for report-grade runs."""
+    return [
+        _step("Leakage audit (hard gate: exact duplicates and group straddles)",
+              [c.py, c.s("audit_split_leakage.py"), "--config", c.cfg,
+               "--index", c.index, "--class_mode", "fake_only",
+               "--max_pairs", "5000", "--fail_on_exact", "--fail_on_group_straddle",
+               "--out", f"{c.results}/leakage_audit_8way.json"]),
+        _step("Bootstrap CI: pretrained DE-FAKE detection",
+              [c.py, c.s("bootstrap_metrics.py"), "--predictions", c.pred,
+               "--out", f"{c.results}/ci_defake_detection.json"]),
+        _step("Bootstrap CI: DCT detection",
+              [c.py, c.s("bootstrap_metrics.py"),
+               "--predictions", f"{c.dct_svm_out}dct_per_image.csv",
+               "--out", f"{c.results}/ci_dct_detection.json"]),
+        _step("Bootstrap CI: primary 8-way attribution",
+              [c.py, c.s("bootstrap_metrics.py"),
+               "--predictions", f"{c.attr_eval_8_out}attribution_per_image.csv",
+               "--subset", "in_set", "--out", f"{c.results}/ci_attr_8way.json"]),
+        _step("Bootstrap CI: auxiliary 9-way attribution",
+              [c.py, c.s("bootstrap_metrics.py"),
+               "--predictions", f"{c.attr_eval_9_out}attribution_per_image.csv",
+               "--subset", "in_set", "--out", f"{c.results}/ci_attr_9way.json"]),
+        _step("Bootstrap CI: conditional cascade attribution",
+              [c.py, c.s("bootstrap_metrics.py"),
+               "--predictions", f"{c.results}/cascade/cascade_known_fake_conditional.csv",
+               "--subset", "all", "--out", f"{c.results}/ci_cascade_conditional.json"]),
+        _step("Bootstrap CI: end-to-end cascade attribution",
+              [c.py, c.s("bootstrap_metrics.py"),
+               "--predictions", f"{c.results}/cascade/cascade_known_fake_end_to_end.csv",
+               "--subset", "all", "--out", f"{c.results}/ci_cascade_end_to_end.json"]),
+        _step("Paired significance: pretrained DE-FAKE vs DCT",
+              [c.py, c.s("compare_models_significance.py"), "--defake", c.pred,
+               "--dct", f"{c.dct_svm_out}dct_per_image.csv",
+               "--out", f"{c.results}/defake_vs_dct_significance.json"]),
+        _step("Ten-seed sensitivity: primary 8-way attribution",
+              [c.py, c.s("seed_sweep.py"), "--config", c.cfg,
+               "--index", c.index, "--class_mode", "fake_only",
+               "--jpeg_aug", c.jpeg_aug, "--n_seeds", "10",
+               "--features_cache", c.feats, "--captions_csv", c.captions,
+               "--device", c.device, "--out", f"{c.results}/seed_sweep_8way.json"]),
+    ]
+
+
 def stage_ganfp(c):
     # benchmark_attribution.py's --jpeg_aug is a bare flag (action="store_true"), UNLIKE
     # train_ganfp.py/train_ganfp_cnn.py's --jpeg_aug {auto,on,off} choice flag - append it
@@ -470,7 +515,8 @@ BUILDERS = {
     "detect": stage_detect, "dct": stage_dct, "attribution": stage_attribution,
     "ffhq_ablation": stage_ffhq_ablation,
     "cascade": stage_cascade,
-    "oos": stage_oos, "ganfp": stage_ganfp, "robustness": stage_robustness,
+    "oos": stage_oos, "rigor": stage_rigor,
+    "ganfp": stage_ganfp, "robustness": stage_robustness,
     "aggregate": stage_aggregate,
 }
 
@@ -496,12 +542,21 @@ def _check_prereqs(c, stages):
     need("cascade", "attribution", head, "cascade attribution")
     need("cascade", "dct", f"{c.dct_svm_out}dct_per_image.csv", "cascade detection")
     need("cascade", "dct", c.test_index, "cascade shared test index")
+    need("rigor", "variants", c.index, "leakage audit")
+    need("rigor", "detect", c.pred, "DE-FAKE bootstrap/significance")
+    need("rigor", "dct", f"{c.dct_svm_out}dct_per_image.csv", "DCT bootstrap/significance")
+    need("rigor", "attribution", f"{c.attr_eval_8_out}attribution_per_image.csv",
+         "8-way attribution bootstrap")
+    need("rigor", "attribution", f"{c.attr_eval_9_out}attribution_per_image.csv",
+         "9-way attribution bootstrap")
+    need("rigor", "cascade", f"{c.results}/cascade/cascade_known_fake_end_to_end.csv",
+         "cascade bootstrap")
 
     if missing:
         raise SystemExit(
             "Missing prerequisites for the requested stages:\n" + "\n".join(missing) +
             "\n\nEither add the producer stage(s) to --stages, or run the headline stages first, "
-            "e.g.:\n  --stages detect,dct,attribution,oos,aggregate")
+            "e.g.:\n  --stages detect,dct,attribution,cascade,oos,rigor,aggregate")
 
 
 def main(args):

@@ -123,7 +123,8 @@ The plan must print:
 - Matched source-specific attribution with and without FFHQ
 - DCT-to-DE-FAKE cascade
 - Cohen's kappa in binary, multi-class, and cascade metric outputs
-- 27 planned steps
+- Mandatory leakage gates, bootstrap CIs, paired significance, and ten-seed sensitivity
+- 36 planned steps
 
 ## 6. Authoritative experiment
 
@@ -131,50 +132,29 @@ The plan must print:
 nohup $PY scripts/run_experiment.py \
   --run_id $RUN \
   --variant aspect --jpeg_aug on \
-  --stages index,variants,confound,detect,dct,attribution,ffhq_ablation,cascade,oos,aggregate \
+  --stages index,variants,confound,detect,dct,attribution,ffhq_ablation,cascade,oos,rigor,aggregate \
   > logs/${RUN}.out 2>&1 &
 ```
 
 Do not reuse another run ID. Use `--resume` only to continue this exact run with an unchanged
 config hash.
 
-## 7. Required post-run rigor
+## 7. Mandatory rigor stage
 
-Run these only after the authoritative pipeline succeeds:
+`rigor` is part of the default orchestrator and runs before final aggregation. It:
+
+- Hard-fails on exact cross-split duplicates or explicit group straddles
+- Retains near-dHash matches as a diagnostic rather than a hard failure
+- Bootstraps DE-FAKE, DCT, 8-way, 9-way, and cascade metrics
+- Runs the paired DCT/DE-FAKE significance test
+- Runs the ten-seed primary-attribution sensitivity analysis
+
+For an older run that already completed model stages, execute rigor without retraining:
 
 ```bash
-nohup sh -c '
-  $WTP_PY_DEFAKE scripts/audit_split_leakage.py \
-    --config configs/config.yaml \
-    --index results/'"$RUN"'/index_aspect.csv \
-    --class_mode fake_only \
-    --out results/'"$RUN"'/leakage_audit_8way.json &&
-  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
-    --predictions $WTP_ROOT/dataset/defake_predictions_'"$RUN"'_aspect.csv \
-    --out results/'"$RUN"'/ci_defake_detection.json &&
-  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
-    --predictions results/'"$RUN"'/dct_svm_aspect/dct_per_image.csv \
-    --out results/'"$RUN"'/ci_dct_detection.json &&
-  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
-    --predictions results/'"$RUN"'/attr_eval_8way_aspect/attribution_per_image.csv \
-    --subset in_set \
-    --out results/'"$RUN"'/ci_attr_8way.json &&
-  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
-    --predictions results/'"$RUN"'/cascade/cascade_known_fake_conditional.csv \
-    --subset all \
-    --out results/'"$RUN"'/ci_cascade_conditional.json &&
-  $WTP_PY_DEFAKE scripts/bootstrap_metrics.py \
-    --predictions results/'"$RUN"'/cascade/cascade_known_fake_end_to_end.csv \
-    --subset all \
-    --out results/'"$RUN"'/ci_cascade_end_to_end.json &&
-  $WTP_PY_DEFAKE scripts/seed_sweep.py \
-    --config configs/config.yaml \
-    --index results/'"$RUN"'/index_aspect.csv \
-    --class_mode fake_only --jpeg_aug on --n_seeds 10 \
-    --features_cache results/'"$RUN"'/clip_feats_aspect_clean.npz \
-    --captions_csv $WTP_ROOT/dataset/defake_predictions_'"$RUN"'_aspect.csv \
-    --out results/'"$RUN"'/seed_sweep_8way.json
-' > logs/${RUN}_rigor.out 2>&1 &
+$PY scripts/run_experiment.py \
+  --run_id $RUN --resume \
+  --stages rigor,aggregate
 ```
 
 Required gates:
@@ -189,12 +169,12 @@ Required gates:
 
 ## 8. Optional appendix stages
 
-GAN-fp and robustness are not required for the core professor-facing result:
+Robustness is not required for the core professor-facing result:
 
 ```bash
 nohup $PY scripts/run_experiment.py \
   --run_id $RUN --resume \
-  --stages robustness,ganfp,aggregate \
+  --stages robustness,aggregate \
   > logs/${RUN}_appendix.out 2>&1 &
 ```
 
@@ -216,6 +196,8 @@ results/<run_id>/ci_dct_detection.json
 results/<run_id>/ci_cascade_conditional.json
 results/<run_id>/ci_cascade_end_to_end.json
 results/<run_id>/seed_sweep_8way.json
+results/<run_id>/defake_vs_dct_significance.json
+results/<run_id>/leakage_audit_8way.json
 ```
 
 Never copy metrics from the superseded 7-class study into the final report.

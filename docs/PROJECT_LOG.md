@@ -474,7 +474,7 @@ self-documenting.
   index-content-hashed feature-cache signature that refuses to reuse a mismatched cache, so a
   same-index/same-classes run cannot legitimately diverge this much. Far more likely: the
   standalone number is stale, from an earlier/smaller run (the report already documents an
-  analogous 200-image-toy-set-vs-1626-image-real-set swing in `report/GANFP_REPORT.md` section
+  analogous 200-image-toy-set-vs-1626-image-real-set swing in the historical GAN-fp workstream
   5-6). Recommendation logged in `report/REPORT_OUTLINE.md` section 6: either re-run standalone
   with the exact index/classes/fresh cache the current benchmark used and confirm agreement, or
   simply stop reporting a separate standalone number and cite `benchmark_metrics.json`'s
@@ -1084,3 +1084,30 @@ same-class aligned-face/template similarity (312 img2img, 30 FLUX). Only one cro
 had Hamming distance <=3 (PGGAN-v2 vs StarGAN), and exact SHA-256 duplicates remained zero. This
 shows that 64-bit dHash is overly sensitive to shared aligned-face composition; it is not evidence
 of a duplicated file or shared source identity by itself.
+
+## 27. Minimal final-report cleanup (2026-08-01)
+
+**Why:** A final audit found three reproducibility/documentation gaps that did not invalidate
+model results but could mislead an examiner: historical GAN-fp metrics remained under `report/`,
+rigor checks were manual, and automated summaries omitted uncertainty.
+
+**Changes:**
+
+- Replaced the active GAN-fp report with `docs/GANFP_HISTORICAL.md`, preserving method history
+  while removing superseded 10-class prototype metrics from the report surface.
+- Added a mandatory `rigor` orchestrator stage before aggregation. It hard-fails on exact
+  cross-split duplicates/group straddles, runs all headline bootstrap intervals, paired
+  DCT/DE-FAKE significance, and the ten-seed attribution sweep. Near-dHash matches remain
+  diagnostic because aligned-face data produces many false positives.
+- Extended `aggregate_results.py` to include CIs, seed sensitivity, paired significance, and
+  split-integrity summaries while suppressing definitional OOS top-1/kappa and mixed
+  `all_fakes` rows.
+- Added `docs/EXPERIMENT_CATALOG.md` mapping every reportable experiment to committed scripts,
+  immutable outputs, report priority, and interpretation limits.
+- Clarified that Python 3.9 is the authoritative server runtime and Python 3.11 CI is a
+  CPU-compatibility smoke test.
+- Added the fixed img2img studio prompt as a content-confound limitation and prevented the old
+  OpenForensics 10/300 measurement from being misapplied to the current primary/DCT protocols.
+
+No dataset, model, split, or authoritative metric changed; the cleanup requires only a summary
+regeneration for the completed run.

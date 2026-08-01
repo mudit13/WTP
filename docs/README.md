@@ -10,6 +10,8 @@ Use these documents according to their role. Only `PIPELINE.md` is an executable
 - `SERVER_WORKFLOW.md` - connection, host/container paths, and interpreter rules.
 - `ENVIRONMENTS.md` - Python environments and dependency boundaries.
 - `DATASHEET_TEMPLATE.md` - required dataset provenance fields.
+- `EXPERIMENT_CATALOG.md` - reportable experiments mapped to scripts and evidence.
+- `GANFP_HISTORICAL.md` - optional method-development history; no active metrics.
 - `PROJECT_LOG.md` - chronological decision and debugging history; not a runbook.
 - `../report/REPORT_OUTLINE.md` - current report structure and required evidence.
 - `../CITATIONS.md` - methods, datasets, checkpoints, and licenses.

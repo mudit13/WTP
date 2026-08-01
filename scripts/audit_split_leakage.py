@@ -62,6 +62,17 @@ def _hamming(a, b):
     return bin(a ^ b).count("1")
 
 
+def _gate_failures(audit, fail_on_exact=False, fail_on_group_straddle=False):
+    failures = []
+    exact = audit.get("exact_cross_split_duplicates", {}).get("count", 0)
+    straddles = audit.get("group_straddle", {}).get("n_groups_straddling", 0)
+    if fail_on_exact and exact:
+        failures.append("%d exact cross-split duplicate group(s)" % exact)
+    if fail_on_group_straddle and straddles:
+        failures.append("%d source group(s) straddling splits" % straddles)
+    return failures
+
+
 def _finetune_splits(index_csv, config, group_map_paths=None, logger=None,
                      class_mode=None):
     """Reconstruct the in-set train/val/test split as finetune_defake_head.py does; configured
@@ -266,6 +277,11 @@ def main(args):
     if exact_cross:
         logger.warning("Exact cross-split duplicates found (%d groups) - investigate.",
                        len(exact_cross))
+    gate_failures = _gate_failures(
+        out, fail_on_exact=args.fail_on_exact,
+        fail_on_group_straddle=args.fail_on_group_straddle)
+    if gate_failures:
+        raise SystemExit("Leakage gate failed: " + "; ".join(gate_failures))
 
 
 if __name__ == "__main__":
@@ -292,5 +308,9 @@ if __name__ == "__main__":
                         help="Max dHash Hamming distance to flag a near-duplicate (0-64)")
     parser.add_argument("--max_pairs", type=int, default=200,
                         help="Cap on near-duplicate pairs written to JSON")
+    parser.add_argument("--fail_on_exact", action="store_true",
+                        help="Exit nonzero after writing JSON when exact duplicates cross splits.")
+    parser.add_argument("--fail_on_group_straddle", action="store_true",
+                        help="Exit nonzero after writing JSON when explicit groups cross splits.")
     parser.add_argument("--out", required=True)
     main(parser.parse_args())

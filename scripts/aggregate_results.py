@@ -72,7 +72,9 @@ def main(args):
         for path in attr:
             data = _load(path) or {}
             tag = os.path.relpath(os.path.dirname(path), args.results_dir)
-            for split_name in ("in_set", "out_of_set", "all_fakes", "test"):
+            # OOS top-1/kappa are definitional when the true class is absent, and `all_fakes`
+            # mixes known and absent-label populations. Keep those in raw JSON only.
+            for split_name in ("in_set", "test"):
                 res = data.get(split_name)
                 if isinstance(res, dict) and "top1_accuracy" in res:
                     lines.append("- %s [%s]: top1=%.3f macroF1=%.3f balAcc=%.3f "
@@ -143,6 +145,81 @@ def main(args):
                     delta.get("cohen_kappa", float("nan")),
                     delta.get("stylegan3_recall", float("nan")),
                     delta.get("stylegan3_real_prediction_rate", float("nan"))))
+        lines.append("")
+
+    ci_files = sorted(glob.glob(os.path.join(args.results_dir, "ci_*.json")))
+    if ci_files:
+        lines += ["## Bootstrap 95% confidence intervals", ""]
+        for path in ci_files:
+            data = _load(path) or {}
+            overall = data.get("overall", {})
+            tag = os.path.splitext(os.path.basename(path))[0]
+            parts = []
+            for metric in ("top1_accuracy", "balanced_accuracy", "cohen_kappa", "auroc"):
+                value = overall.get(metric)
+                if isinstance(value, dict) and value.get("point") is not None:
+                    parts.append("%s=%.3f [%.3f, %.3f]" % (
+                        metric, value["point"], value.get("lo", float("nan")),
+                        value.get("hi", float("nan"))))
+            if parts:
+                lines.append("- %s: %s (n=%s)" % (
+                    tag, "; ".join(parts), overall.get("n", "?")))
+        lines.append("")
+
+    seed_files = sorted(glob.glob(os.path.join(args.results_dir, "seed_sweep*.json")))
+    if seed_files:
+        lines += ["## Attribution seed sensitivity", ""]
+        for path in seed_files:
+            data = _load(path) or {}
+            tag = os.path.splitext(os.path.basename(path))[0]
+            parts = []
+            for metric in ("top1_accuracy", "balanced_accuracy", "cohen_kappa"):
+                value = data.get(metric)
+                if isinstance(value, dict) and value.get("mean") is not None:
+                    parts.append("%s=%.3f+/-%.3f" % (
+                        metric, value["mean"], value.get("std", float("nan"))))
+            if parts:
+                lines.append("- %s: %s (%d seeds)" % (
+                    tag, "; ".join(parts), len(data.get("seeds", []))))
+        lines.append("")
+
+    significance_path = os.path.join(args.results_dir, "defake_vs_dct_significance.json")
+    significance = _load(significance_path)
+    if significance:
+        lines += ["## Paired DCT vs pretrained DE-FAKE comparison", ""]
+        auroc = significance.get("auroc", {}).get("diff_defake_minus_dct", {})
+        bal = significance.get("balanced_accuracy", {}).get("diff_defake_minus_dct", {})
+        mcnemar = significance.get("mcnemar", {})
+        lines.append(
+            "- shared n=%d; McNemar p=%.4f; DE-FAKE-minus-DCT AUROC=%+.3f "
+            "[%.3f, %.3f], p=%.3f; balancedAcc=%+.3f [%.3f, %.3f], p=%.3f" % (
+                significance.get("n_shared", 0), mcnemar.get("p_value", float("nan")),
+                auroc.get("point", float("nan")), auroc.get("lo", float("nan")),
+                auroc.get("hi", float("nan")), auroc.get("p_bootstrap", float("nan")),
+                bal.get("point", float("nan")), bal.get("lo", float("nan")),
+                bal.get("hi", float("nan")), bal.get("p_bootstrap", float("nan"))))
+        lines.append("")
+
+    # One authoritative audit only. Historical `_full`/`_corrected` diagnostics may coexist in
+    # an old run directory and must not republish superseded warnings.
+    audit_files = [
+        path for path in [
+            os.path.join(args.results_dir, "leakage_audit_8way.json"),
+            os.path.join(args.results_dir, "leakage_audit_8way_corrected.json"),
+        ] if os.path.exists(path)
+    ][:1]
+    if audit_files:
+        lines += ["## Split-integrity audits", ""]
+        for path in audit_files:
+            data = _load(path) or {}
+            group = data.get("group_straddle", {})
+            exact = data.get("exact_cross_split_duplicates", {})
+            near = data.get("near_cross_split_duplicates", {})
+            lines.append("- %s: groups=%d/%d straddling; exact=%d; near-dHash=%d "
+                         "(diagnostic only)" % (
+                os.path.basename(path), group.get("n_groups_straddling", 0),
+                group.get("n_groups_checked", 0), exact.get("count", 0),
+                near.get("count", 0)))
         lines.append("")
 
     io_utils.ensure_dir(os.path.dirname(os.path.abspath(args.out)))

@@ -1,5 +1,10 @@
 # Dataset datasheet (per dataset)
 
+> **Generator template, not a report source.** This is the fill-in-the-blank template consumed
+> by `scripts/make_datasheets.py` to auto-fill measurable fields. For the FILLED, authoritative,
+> report-ready provenance of every dataset in the eight-way run, use `docs/DATA_PROVENANCE.md`
+> instead - it supersedes this file for reporting purposes.
+
 The supervisor explicitly requires the processing history of every dataset so we can argue
 that the detector learns generator traces, not preprocessing artifacts. Fill one block per
 dataset. `scripts/make_datasheets.py` auto-fills the measurable fields (count, resolution,

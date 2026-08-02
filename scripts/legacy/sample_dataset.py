@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+ARCHIVED (scripts/legacy/, see scripts/legacy/README.md): superseded by config-driven
+`sample_size` handling in `build_master_index.py` (seeded random subset per dataset, no manual
+copy step needed). Not used by run_experiment.py or any current runbook. Kept for history only.
+
 Sample N images from a source directory into a destination directory by COPYING bytes
 (no re-encode), preserving the original pixels and avoiding extra compression artifacts.
 
@@ -7,7 +11,7 @@ Used to build balanced, face-only real subsets (OpenForensics reals, DFFD reals)
 "real" class is diverse but size-matched to the fake classes (GOLD concern #1).
 
 Usage:
-  /usr/bin/python3.9 scripts/sample_dataset.py \
+  /usr/bin/python3.9 scripts/legacy/sample_dataset.py \
       --src /share/DeepFake/DFFD_Images --glob "**/real/**/*.png" \
       --dst /pitsec_sose26_topic8/dffd_real --n 150 --seed 42
 """
@@ -18,7 +22,7 @@ import random
 import shutil
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib import io_utils  # noqa: E402
 
 

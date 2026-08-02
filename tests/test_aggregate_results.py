@@ -1,6 +1,8 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 import aggregate_results
 
 
@@ -9,7 +11,45 @@ def _write(path, data):
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
+def _write_manifest(tmp_path, **overrides):
+    manifest = {
+        "run_id": "test-run",
+        "core_commit": "abc123def456",
+        "config_sha256": "deadbeef" * 4,
+    }
+    manifest.update(overrides)
+    _write(tmp_path / "run_manifest.json", manifest)
+
+
+def test_aggregate_rejects_directory_without_run_manifest(tmp_path):
+    """Refuse flat/unscoped aggregation (e.g. the bare `results/` base dir) that could mix
+    metrics from more than one run."""
+    with pytest.raises(SystemExit, match="run_manifest.json"):
+        aggregate_results.main(SimpleNamespace(
+            results_dir=str(tmp_path), out=str(tmp_path / "REPORT_SUMMARY.md")))
+
+
+def test_aggregate_writes_run_provenance_header(tmp_path):
+    _write_manifest(tmp_path)
+    out = tmp_path / "REPORT_SUMMARY.md"
+    aggregate_results.main(SimpleNamespace(results_dir=str(tmp_path), out=str(out)))
+    text = out.read_text(encoding="utf-8")
+    assert "test-run" in text
+    assert "abc123def456"[:12] in text
+
+
+def test_aggregate_notes_analysis_history_without_changing_core_commit(tmp_path):
+    _write_manifest(tmp_path, analysis_history=[
+        {"at": "2026-08-02T00:00:00", "commit": "zzz999", "reason": "reporting fix"}])
+    out = tmp_path / "REPORT_SUMMARY.md"
+    aggregate_results.main(SimpleNamespace(results_dir=str(tmp_path), out=str(out)))
+    text = out.read_text(encoding="utf-8")
+    assert "1 post-creation analysis_history" in text
+    assert "abc123def456"[:12] in text  # core_commit unchanged in the header
+
+
 def test_aggregate_includes_rigor_and_suppresses_meaningless_oos_accuracy(tmp_path):
+    _write_manifest(tmp_path)
     metric = {
         "top1_accuracy": 0.8,
         "macro_f1": 0.8,

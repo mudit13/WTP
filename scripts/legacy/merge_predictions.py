@@ -1,5 +1,11 @@
 """
 merge_predictions.py
+
+ARCHIVED (scripts/legacy/, see scripts/legacy/README.md): the unified `master_metadata.csv`
+already contains DFFD rows, so `run_defake_batch.py` scores every row in one pass and this
+separate merge step is unused by run_experiment.py or any current runbook (see docs/PIPELINE.md
+"Pipeline note"). Kept for history only.
+
 Concatenate the main DE-FAKE prediction CSV and the DFFD prediction CSV into a single
 defake_predictions_all.csv (the file the analysis/scoring scripts consume).
 
@@ -10,7 +16,7 @@ Pass --require-dffd to make a missing DFFD CSV a hard error, so a partial merge 
 silently masquerade as the full dataset.
 
 Run anywhere with python (stdlib only):
-    python scripts/merge_predictions.py [--require-dffd]
+    python scripts/legacy/merge_predictions.py [--require-dffd]
 """
 
 import argparse

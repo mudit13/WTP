@@ -12,7 +12,8 @@ Two data modes:
                        are cached via ganfp.build_features (--features_cache).
 
 Reports multi-class attribution + secondary binary detection metrics, a confusion matrix, and
-per-image test predictions; saves the head as ganfp_head.pt (consumed by run_ganfp_infer.py).
+per-image test predictions; saves the head as ganfp_head.pt (consumed by
+scripts/legacy/run_ganfp_infer.py for standalone inference, if needed).
 
 Local CPU prototype:
   python scripts/train_ganfp.py --config configs/config.yaml --sample_dir ganfp_sample \

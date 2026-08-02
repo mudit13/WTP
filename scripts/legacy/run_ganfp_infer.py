@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+ARCHIVED (scripts/legacy/, see scripts/legacy/README.md): a standalone inference helper for an
+already-trained ganfp_head.pt, not wired into run_experiment.py's `ganfp` stage (which scores
+GAN-fp via train_ganfp.py + benchmark_attribution.py directly). Kept for history only.
+
 Run a trained GAN-fp head (ganfp_head.pt from train_ganfp.py) over a set of images and emit a
 per-image CSV consumable by the existing eval_defake_attribution.py
 (`--pred_col pred_generator`). This lets GAN-fp slot into the standard attribution-eval
@@ -11,7 +15,7 @@ Two data modes (same as train_ganfp.py):
   --index <csv>        master_metadata.csv (full run)
 
 Local:
-  python scripts/run_ganfp_infer.py --config configs/config.yaml \
+  python scripts/legacy/run_ganfp_infer.py --config configs/config.yaml \
       --head results/ganfp_local/ganfp_head.pt --sample_dir ganfp_sample \
       --out results/ganfp_local/ganfp_infer_per_image.csv
 """
@@ -19,7 +23,7 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib import io_utils, metrics, defake_head, ganfp, schema  # noqa: E402
 
 import numpy as np  # noqa: E402

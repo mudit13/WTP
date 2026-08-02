@@ -7,9 +7,14 @@ metrics.json from dct_svm, finetune_metrics.json, logo_summary.json, out_of_set_
 and renders compact tables. This turns scattered run outputs into one paste-ready report
 appendix.
 
+`--results_dir` MUST be a single immutable run directory produced by run_experiment.py (it must
+contain that run's run_manifest.json) - never the flat `results/` base directory, which can
+contain multiple runs and would silently mix their metrics into one report.
+
 Usage:
-  /usr/bin/python3.9 scripts/aggregate_results.py --results_dir results/ \
-      --out results/REPORT_SUMMARY.md
+  /usr/bin/python3.9 scripts/aggregate_results.py \
+      --results_dir results/2026-08-01_eightway_v1/ \
+      --out results/2026-08-01_eightway_v1/REPORT_SUMMARY.md
 """
 import argparse
 import glob
@@ -29,9 +34,41 @@ def _load(path):
         return None
 
 
+def _require_run_scoped_manifest(results_dir):
+    """Refuse to aggregate a directory that is not a single immutable run.
+
+    The only reliable signal that `results_dir` is one run (not the flat multi-run `results/`
+    base) is the presence of THAT run's own run_manifest.json, written once by
+    run_experiment.py and never by any other stage. Path-name heuristics (e.g. "does it look
+    like results/<run_id>/") are not used here because they are easy to spoof or forget.
+    """
+    manifest_path = os.path.join(results_dir, "run_manifest.json")
+    manifest = _load(manifest_path)
+    if manifest is None:
+        raise SystemExit(
+            "Refusing to aggregate '%s': no run_manifest.json found there. --results_dir must "
+            "point at a single immutable run directory created by run_experiment.py (e.g. "
+            "results/2026-08-01_eightway_v1/), not the flat results/ base directory, which can "
+            "mix metrics from multiple runs into one report." % results_dir)
+    return manifest
+
+
 def main(args):
     logger = io_utils.setup_logging("aggregate_results")
+    manifest = _require_run_scoped_manifest(args.results_dir)
     lines = ["# Auto-aggregated results summary", ""]
+    lines += [
+        "Run: `%s`  Core commit: `%s`  Config sha256: `%s`" % (
+            manifest.get("run_id", "?"),
+            (manifest.get("core_commit") or manifest.get("git_commit", "?"))[:12],
+            manifest.get("config_sha256", "?")[:12]),
+        "",
+    ]
+    history = manifest.get("analysis_history") or []
+    if history:
+        lines += ["**Note:** %d post-creation analysis_history entr%s recorded (see "
+                 "run_manifest.json); core_commit above is still the ORIGINAL run-producing "
+                 "commit." % (len(history), "y" if len(history) == 1 else "ies"), ""]
 
     detection = sorted(glob.glob(os.path.join(args.results_dir, "**", "detection_metrics.json"),
                                  recursive=True))
@@ -230,6 +267,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Aggregate metric JSONs into one summary.")
-    parser.add_argument("--results_dir", default="results/")
-    parser.add_argument("--out", default="results/REPORT_SUMMARY.md")
+    parser.add_argument("--results_dir", required=True,
+                        help="A single run-scoped directory containing that run's own "
+                             "run_manifest.json, e.g. results/2026-08-01_eightway_v1/.")
+    parser.add_argument("--out", required=True,
+                        help="Output markdown path, e.g. results/<run_id>/REPORT_SUMMARY.md.")
     main(parser.parse_args())

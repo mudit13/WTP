@@ -9,7 +9,10 @@ Primary writing sources:
 - `docs/DATA_PROVENANCE.md`
 - `docs/EXPERIMENT_CATALOG.md`
 - `report/AUTHORITATIVE_RESULTS_DRAFT.md`
-- Extracted immutable evidence under `results/2026-08-01_eightway_v1_evidence/`
+- Immutable evidence: authoritative path on the server is `results/2026-08-01_eightway_v1/`
+  (see `docs/PIPELINE.md`); the same run is also available locally, extracted from the evidence
+  archive, under `results/2026-08-01_eightway_v1_evidence/results/2026-08-01_eightway_v1/` -
+  both are the SAME run's files, just two different locations to read them from.
 
 ## Abstract — approximately 0.5 page
 

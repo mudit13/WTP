@@ -67,8 +67,26 @@ def _declared_real_classes(config_path):
     return list(attr.get("real_generators", []))
 
 
+def _current_git_commit():
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(io_utils.repo_root()),
+            universal_newlines=True).strip()
+    except Exception:  # noqa: BLE001
+        return "<unavailable>"
+
+
 def _prepare_run_dir(c, args):
-    """Create or validate an immutable run directory and provenance manifest."""
+    """Create or validate an immutable run directory and provenance manifest.
+
+    The manifest's `core_commit` (the code that PRODUCED the run's model artifacts) is written
+    once, at creation, and never overwritten. A `--resume` that finds the code has moved on from
+    that commit is refused by default: resuming with different code risks silently mixing
+    evidence produced by two different codebases under one run_id. `--allow_code_drift` plus a
+    required `--code_drift_reason` records an explicit, timestamped `analysis_history` entry
+    instead (e.g. "resume to only re-run aggregate_results.py after a reporting-only fix") -
+    the core_commit itself is still never touched.
+    """
     manifest_path = os.path.join(c.results, "run_manifest.json")
     config_hash = _sha256(c.cfg)
     if os.path.exists(c.results) and not args.resume:
@@ -81,19 +99,39 @@ def _prepare_run_dir(c, args):
             previous = json.load(fh)
         if previous.get("config_sha256") != config_hash:
             raise SystemExit("Refusing to resume: config hash differs from run_manifest.json")
+
+        core_commit = previous.get("core_commit") or previous.get("git_commit")
+        current_commit = _current_git_commit()
+        if core_commit and current_commit != "<unavailable>" and core_commit != current_commit:
+            if not args.allow_code_drift:
+                raise SystemExit(
+                    "Refusing to resume run '%s': the code has moved on from this run's core "
+                    "commit (%s -> %s). Resuming now would risk mixing evidence produced by two "
+                    "different codebases under one run_id. If this resume is safe (e.g. a "
+                    "reporting-only stage after a docs/aggregation fix), pass both "
+                    "--allow_code_drift and --code_drift_reason \"<why this is safe>\" to record "
+                    "an explicit analysis-history entry; core_commit itself will not change."
+                    % (c.run_id, core_commit[:12], current_commit[:12]))
+            if not args.code_drift_reason:
+                raise SystemExit("--allow_code_drift requires --code_drift_reason \"...\"")
+            history = previous.setdefault("analysis_history", [])
+            history.append({
+                "at": datetime.now().isoformat(),
+                "commit": current_commit,
+                "reason": args.code_drift_reason,
+                "stages": args.stages,
+            })
+            with open(manifest_path, "w", encoding="utf-8") as fh:
+                json.dump(previous, fh, indent=2)
         return
 
     io_utils.ensure_dir(c.results)
-    try:
-        git_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=str(io_utils.repo_root()),
-            universal_newlines=True).strip()
-    except Exception:  # noqa: BLE001
-        git_commit = "<unavailable>"
+    git_commit = _current_git_commit()
     manifest = {
         "run_id": c.run_id,
         "created_at": datetime.now().isoformat(),
         "git_commit": git_commit,
+        "core_commit": git_commit,
         "config_path": os.path.abspath(c.cfg),
         "config_sha256": config_hash,
         "variant": c.variant,
@@ -102,6 +140,7 @@ def _prepare_run_dir(c, args):
         "declared_fake_classes": _declared_fake_classes(c.cfg),
         "primary_attribution": "fake_only",
         "auxiliary_attribution": "joint",
+        "analysis_history": [],
     }
     with open(manifest_path, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2)
@@ -568,7 +607,7 @@ def main(args):
 
     c = Ctx(args)
     if not args.dry_run and not args.run_id:
-        raise SystemExit("A non-dry run requires --run_id (e.g. 2026-07-20_eightway_v1) "
+        raise SystemExit("A non-dry run requires --run_id (e.g. YYYY-MM-DD_eightway_v2) "
                          "so results cannot mix with legacy outputs.")
     if not args.dry_run:
         _prepare_run_dir(c, args)
@@ -630,6 +669,13 @@ if __name__ == "__main__":
                    help="Immutable run tag under --results_dir; required for execution.")
     p.add_argument("--resume", action="store_true",
                    help="Resume an existing run_id only when its config hash matches.")
+    p.add_argument("--allow_code_drift", action="store_true",
+                   help="Allow --resume when the code has moved on from the run's core commit. "
+                        "Requires --code_drift_reason; appends an analysis_history record "
+                        "instead of changing the immutable core_commit.")
+    p.add_argument("--code_drift_reason", default=None,
+                   help="Required with --allow_code_drift: why resuming with different code is "
+                        "safe for this run (e.g. a reporting-only fix).")
     p.add_argument("--dataset_dir", default=None,
                    help="Dataset root (default: $WTP_ROOT/dataset).")
     p.add_argument("--python", default=None,

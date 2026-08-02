@@ -1,5 +1,12 @@
 # Project log - changes and the reasons behind them
 
+> **Status: historical record only.** The authoritative run `2026-08-01_eightway_v1` is
+> complete (see `docs/EXPERIMENT_CATALOG.md`, `report/AUTHORITATIVE_RESULTS_DRAFT.md`). Any
+> entry below that describes something as "pending", "TODO", or "not yet run" was superseded by
+> that run unless a later entry says otherwise - this log is not re-edited to keep old entries
+> current. For the present state of the pipeline, use `docs/PIPELINE.md`,
+> `docs/EXPERIMENT_CATALOG.md`, and `configs/config.yaml`, not this file.
+
 Topic 8: AI Image Detection & Attribution. Code is authored locally and executed inside the
 GPU container; the repo root maps to the container project root (`/pitsec_sose26_topic8`).
 This log explains WHAT changed and WHY, so anyone (team or examiner) can follow the reasoning.

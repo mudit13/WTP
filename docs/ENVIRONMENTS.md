@@ -62,18 +62,22 @@ python3.9 -m virtualenv venv_flux1
 After recreating, `cp configs/paths.example.env configs/paths.env` (the defaults already point
 at `/pitsec_sose26_topic8/venv_*`).
 
-## Capture exact venv pins (do this once, on the server)
+## Capture exact venv pins (do this on the server, whenever a venv changes)
 
 The install commands above are approximate. To make the environments truly reproducible,
 freeze the *actual* installed versions from each venv and commit the lock files:
 
 ```bash
 cd /pitsec_sose26_topic8
-for v in sd15 flux1 stylegan3; do
-  ./venv_$v/bin/python -m pip freeze > requirements-$v.lock
-done
-git add requirements-*.lock && git commit -m "chore: capture exact venv pins"
+bash scripts/capture_env_locks.sh
+git add requirements-*.lock && git commit -m "chore: refresh venv lock files"
 ```
+
+`scripts/capture_env_locks.sh` runs `pip freeze` inside each of `venv_sd15`, `venv_flux1`, and
+`venv_stylegan3` and writes `requirements-sd15.lock` / `requirements-flux1.lock` /
+`requirements-stylegan3.lock`. It also flags any `-e`/`file://` (local/editable) entries, which
+are machine-specific and must be resolved to a real pinned version before committing - a
+committed lock with an editable install would not be installable in a fresh Magdeburg container.
 
 These `requirements-*.lock` files ARE committed (unlike the venvs themselves) so anyone can
 rebuild the exact environment. Note they include the CUDA-tagged torch builds, so install with

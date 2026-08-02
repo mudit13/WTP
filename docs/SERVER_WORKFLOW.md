@@ -31,7 +31,7 @@ venvs live in the same dir but are git-ignored.
 │   ── git-ignored (present on server, not committed) ──
 ├── dataset/
 │   ├── sd15_txt2img/images/           *.png  (fake, SD1.5, near_in_set)
-│   ├── sd15_img2img/images/            *.png  (generated on first aligned run)
+│   ├── sd15_img2img/images/            *.png  (fake, SD1.5-img2img, in_set/TRAINED)
 │   │   └── ../londondb_img2img_groups.csv    (London identity coupling sidecar)
 │   ├── flux1_txt2img/images/          *.png  (fake, FLUX.1-schnell, out_of_set)
 │   ├── stylegan3/images/              *.png  (fake, StyleGAN3-FFHQ, out_of_set)
@@ -83,14 +83,10 @@ $WTP_PY_DEFAKE scripts/<entry>.py --config configs/config.yaml ... \
     2>&1 | tee logs/run_$(date +%Y%m%d_%H%M%S).log
 ```
 
-Professor-aligned orchestrated runs require a unique immutable tag:
-
-```bash
-nohup $WTP_PY_DEFAKE scripts/run_experiment.py \
-    --run_id 2026-08-01_eightway_v1 \
-    --stages index,variants,confound,detect,dct,attribution,ffhq_ablation,cascade,oos,rigor,aggregate \
-    > logs/eightway_20260801.out 2>&1 &
-```
+Professor-aligned orchestrated runs require a unique immutable `--run_id`. The exact staged
+command (stage list, environment setup, preflight, and validation) is `docs/PIPELINE.md` -
+that file is the single authoritative runbook; do not copy its command blocks here, since a
+divergent copy is exactly how a docstring drifts out of sync with the real orchestrator.
 
 ## 6. Data hygiene before every batch
 
@@ -105,3 +101,18 @@ $WTP_PY_DEFAKE scripts/build_master_index.py --config configs/config.yaml \
 - Python 3.9; ASCII-only source (no box-drawing chars - they corrupt over SSH paste).
 - LF line endings; argparse CLIs; no hardcoded absolute paths (use config + paths.env).
 - Test on a 10-image subset before full-dataset runs (run_defake_batch.py has --test).
+- See `docs/CODE_STYLE.md` for naming/docstring/comment conventions.
+
+## 8. Security note (model/feature loading)
+
+A few load paths deserialize Python objects and will execute arbitrary code if the file is
+malicious. They are safe **only because we load our own trusted artifacts**:
+
+- `run_defake_batch.py` uses `torch.load(..., weights_only=False)` on the supervisor-provided
+  `clip_linear.pt` / `finetune_clip.pt` in `$WTP_ROOT/models`.
+- `generate_stylegan3.py` uses `pickle.load` on the official StyleGAN3 `.pkl`.
+- `features_cache.py` / `dct_svm.py` use `np.load(allow_pickle=True)` on caches this pipeline
+  itself wrote.
+
+Rule: never point these at a downloaded/untrusted checkpoint or feature file. If a checkpoint
+is a plain `state_dict`, prefer `weights_only=True`.

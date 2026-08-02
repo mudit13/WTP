@@ -1,9 +1,11 @@
 """run_experiment.py's perturbation list must be DERIVED from configs/config.yaml's
 `robustness:` block (via robustness_perturb._perturbations), never a separately hand-maintained
 copy - otherwise adding a perturbation to the config silently does not reach the orchestrator."""
+import json
 import os
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 import run_experiment as re
@@ -94,6 +96,115 @@ def test_ffhq_ablation_trains_matched_source_specific_heads(tmp_path):
     assert "FFHQ" not in without_train
     assert all(fake in with_train and fake in without_train for fake in c.fake_classes)
     assert steps[-1]["cmd"][1].endswith("compare_ffhq_ablation.py")
+
+
+def _fake_config(tmp_path, name="config.yaml"):
+    """A minimal but valid config.yaml clone so _sha256 has a real file to hash."""
+    cfg_path = tmp_path / name
+    cfg_path.write_text("attribution:\n  fake_generators: []\n  real_generators: []\n",
+                        encoding="utf-8")
+    return str(cfg_path)
+
+
+def _run_dir_ctx(tmp_path, cfg_path, run_id="my-run"):
+    return SimpleNamespace(results=str(tmp_path / "run"), cfg=cfg_path, run_id=run_id)
+
+
+def test_prepare_run_dir_creates_manifest_with_core_commit(tmp_path, monkeypatch):
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-aaa")
+    cfg_path = _fake_config(tmp_path)
+    c = _run_dir_ctx(tmp_path, cfg_path)
+    c.variant, c.jpeg_aug, c.device = "aspect", "on", "cpu"
+    args = SimpleNamespace(resume=False)
+
+    re._prepare_run_dir(c, args)
+
+    manifest = json.loads((tmp_path / "run" / "run_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["core_commit"] == "commit-aaa"
+    assert manifest["git_commit"] == "commit-aaa"
+    assert manifest["analysis_history"] == []
+
+
+def test_resume_with_same_commit_succeeds_silently(tmp_path, monkeypatch):
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-aaa")
+    cfg_path = _fake_config(tmp_path)
+    c = _run_dir_ctx(tmp_path, cfg_path)
+    c.variant, c.jpeg_aug, c.device = "aspect", "on", "cpu"
+    re._prepare_run_dir(c, SimpleNamespace(resume=False))
+
+    resume_args = SimpleNamespace(resume=True, allow_code_drift=False, code_drift_reason=None,
+                                  stages="aggregate")
+    re._prepare_run_dir(c, resume_args)  # must not raise
+
+    manifest = json.loads((tmp_path / "run" / "run_manifest.json").read_text(encoding="utf-8"))
+    assert manifest.get("analysis_history", []) == []
+
+
+def test_resume_with_different_code_refused_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-aaa")
+    cfg_path = _fake_config(tmp_path)
+    c = _run_dir_ctx(tmp_path, cfg_path)
+    c.variant, c.jpeg_aug, c.device = "aspect", "on", "cpu"
+    re._prepare_run_dir(c, SimpleNamespace(resume=False))
+
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-bbb")
+    resume_args = SimpleNamespace(resume=True, allow_code_drift=False, code_drift_reason=None,
+                                  stages="aggregate")
+    with pytest.raises(SystemExit, match="core commit"):
+        re._prepare_run_dir(c, resume_args)
+
+
+def test_resume_with_code_drift_requires_reason(tmp_path, monkeypatch):
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-aaa")
+    cfg_path = _fake_config(tmp_path)
+    c = _run_dir_ctx(tmp_path, cfg_path)
+    c.variant, c.jpeg_aug, c.device = "aspect", "on", "cpu"
+    re._prepare_run_dir(c, SimpleNamespace(resume=False))
+
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-bbb")
+    resume_args = SimpleNamespace(resume=True, allow_code_drift=True, code_drift_reason=None,
+                                  stages="aggregate")
+    with pytest.raises(SystemExit, match="code_drift_reason"):
+        re._prepare_run_dir(c, resume_args)
+
+
+def test_resume_with_explicit_code_drift_reason_appends_history_without_changing_core(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-aaa")
+    cfg_path = _fake_config(tmp_path)
+    c = _run_dir_ctx(tmp_path, cfg_path)
+    c.variant, c.jpeg_aug, c.device = "aspect", "on", "cpu"
+    re._prepare_run_dir(c, SimpleNamespace(resume=False))
+
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-bbb")
+    resume_args = SimpleNamespace(resume=True, allow_code_drift=True,
+                                  code_drift_reason="reporting-only aggregate re-run",
+                                  stages="aggregate")
+    re._prepare_run_dir(c, resume_args)  # must not raise
+
+    manifest = json.loads((tmp_path / "run" / "run_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["core_commit"] == "commit-aaa"  # immutable
+    assert len(manifest["analysis_history"]) == 1
+    entry = manifest["analysis_history"][0]
+    assert entry["commit"] == "commit-bbb"
+    assert entry["reason"] == "reporting-only aggregate re-run"
+
+
+def test_resume_with_changed_config_still_refused_regardless_of_code_drift_flags(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(re, "_current_git_commit", lambda: "commit-aaa")
+    cfg_path = _fake_config(tmp_path)
+    c = _run_dir_ctx(tmp_path, cfg_path)
+    c.variant, c.jpeg_aug, c.device = "aspect", "on", "cpu"
+    re._prepare_run_dir(c, SimpleNamespace(resume=False))
+
+    # Mutate the config on disk -> hash changes.
+    with open(cfg_path, "a", encoding="utf-8") as fh:
+        fh.write("extra_key: true\n")
+    resume_args = SimpleNamespace(resume=True, allow_code_drift=True,
+                                  code_drift_reason="anything", stages="aggregate")
+    with pytest.raises(SystemExit, match="config hash"):
+        re._prepare_run_dir(c, resume_args)
 
 
 def test_rigor_is_default_and_enforces_leakage_gates_before_aggregate(tmp_path):

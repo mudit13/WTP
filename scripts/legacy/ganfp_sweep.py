@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """
+ARCHIVED (scripts/legacy/, see scripts/legacy/README.md): a one-off hyperparameter sweep. Its
+winning config ([16,32,64], see configs/config.yaml `ganfp.cnn.channels`) is already baked into
+the config; this script is not called by run_experiment.py or any current runbook. Kept for
+history only.
+
 Small CNN channel-width sweep for the GAN-fp attribution head (scripts/lib/ganfp_net.py).
 
 Trains the end-to-end GANFpClassifier over a few conv-channel configs on the SAME seeded
@@ -21,11 +26,11 @@ torch is imported lazily inside lib.ganfp_net; this entry point never imports to
 top so `python -m compileall -q scripts` is torch-free.
 
 Local CPU prototype:
-  python scripts/ganfp_sweep.py --config configs/config.yaml \
+  python scripts/legacy/ganfp_sweep.py --config configs/config.yaml \
       --sample_dir ganfp_sample --out_dir results/ganfp_sweep_local --device cpu
 
 CUDA sweep (the venv with CUDA torch):
-  python scripts/ganfp_sweep.py --config configs/config.yaml \
+  python scripts/legacy/ganfp_sweep.py --config configs/config.yaml \
       --sample_dir ganfp_sample_20260627_215414 --out_dir results/ganfp_sweep \
       --device cuda --jpeg_aug on
 """
@@ -35,7 +40,7 @@ import os
 import sys
 import traceback
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib import io_utils, metrics, defake_head, ganfp, ganfp_net, schema  # noqa: E402
 
 import numpy as np  # noqa: E402

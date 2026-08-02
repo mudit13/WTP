@@ -10,7 +10,7 @@ cd /pitsec_sose26_topic8
 export $(grep -v '^#' configs/paths.env | xargs)
 PY=$WTP_PY_DEFAKE
 CFG=configs/config.yaml
-RUN=2026-07-20_eightway_v1
+RUN=2026-08-01_eightway_v1
 ```
 
 Never use bare `python`. Do not start an authoritative run from uncommitted code.
@@ -201,3 +201,15 @@ results/<run_id>/leakage_audit_8way.json
 ```
 
 Never copy metrics from the superseded 7-class study into the final report.
+
+## 10. Handover verification
+
+Read-only; run after `rigor`/`aggregate` complete and before handing the run to a supervisor:
+
+```bash
+$PY scripts/verify_handover.py --results_dir results/$RUN/ --run_id $RUN
+```
+
+Fails loudly on missing artifacts, non-zero leakage-audit gates, headline numbers that do not
+match the known authoritative values, or a stale flat `REPORT_SUMMARY.md` sitting next to the
+run directory. See `HANDOVER.md` for the full recipient checklist.

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """
+ARCHIVED (scripts/legacy/, see scripts/legacy/README.md): superseded by
+`scripts/extract_openforensics.py`, which writes real/fake subdirectories itself and records the
+`source_image_id` sidecar directly. Not used by run_experiment.py or any current runbook. Kept
+for history only.
+
 Sort the flat OpenForensics face crops into real/ and fake/ subdirectories so the existing
 config-driven build_master_index.py can pick them up with correct labels and CONTAINER paths.
 
@@ -17,7 +22,7 @@ host, then confirm the container sees <out_root>). Files are matched by BASENAME
 host `full_path` prefix does not matter; point --crops_dir at wherever the crops actually live.
 
 Usage:
-  python scripts/ingest_openforensics.py \
+  python scripts/legacy/ingest_openforensics.py \
       --crops_csv ./openforensics_cropped/openforensics_metadata.csv \
       --crops_dir ./openforensics_cropped \
       --out_root /vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics \
@@ -29,7 +34,7 @@ import os
 import shutil
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib import io_utils  # noqa: E402
 
 VALID_LABELS = ("real", "fake")

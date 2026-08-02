@@ -20,9 +20,14 @@ import os
 from urllib.parse import urlparse
 from timm.models.hub import download_cached_file
 
+# Resolved relative to this file (not a hardcoded container path) so this package works
+# unmodified from any checkout location, not just /pitsec_sose26_topic8.
+_DEFAULT_MED_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "blipconfig", "med_config.json")
+
 class BLIP_Base(nn.Module):
     def __init__(self,                 
-                 med_config = '/pitsec_sose26_topic8/De-Fake-patched/blipmodels/blipconfig/med_config.json',  
+                 med_config = _DEFAULT_MED_CONFIG,
                  image_size = 224,
                  vit = 'base',
                  vit_grad_ckpt = False,
@@ -77,7 +82,7 @@ class BLIP_Base(nn.Module):
         
 class BLIP_Decoder(nn.Module):
     def __init__(self,                 
-                 med_config = '/pitsec_sose26_topic8/De-Fake-patched/blipmodels/blipconfig/med_config.json',  
+                 med_config = _DEFAULT_MED_CONFIG,
                  image_size = 384,
                  vit = 'base',
                  vit_grad_ckpt = False,

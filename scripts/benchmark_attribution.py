@@ -51,8 +51,9 @@ import numpy as np  # noqa: E402
 
 def _defake_trained_classes(defake_csv):
     """Best-effort lookup of the DE-FAKE head's OWN trained class list, so the comparison table
-    can show "classes trained on" instead of implying GAN-fp (12 classes) and DE-FAKE (7 classes,
-    by default: 4 real + SD1.5/FLUX/StyleGAN3) are directly comparable. Looks for a sibling
+    can show "classes trained on" instead of implying GAN-fp (whatever --classes this benchmark
+    run used) and DE-FAKE (the primary eight-way fake-only head, or the auxiliary nine-way head
+    with one merged `real` class) are directly comparable. Looks for a sibling
     finetune_metrics.json (written by finetune_defake_head.py next to finetune_per_image.csv,
     which is what --defake_csv normally points at)."""
     if not defake_csv:

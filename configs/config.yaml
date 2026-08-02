@@ -3,6 +3,10 @@
 #   dataset root: ${WTP_ROOT}/dataset   (host: .../sharedDockerDir/dataset)
 #   master CSV schema: filename, full_path, label, generator, category, source_dataset, width, height
 # Paths use ${VAR} placeholders resolved from configs/paths.env (or the real environment).
+#
+# Every constraint below (group-aware splitting, OpenForensics-fake staying test-only, training-
+# only JPEG augmentation, etc.) exists to satisfy a specific requirement in
+# docs/REVIEW_SAFEGUARDS.md - read that file before relaxing any of them.
 
 root: ${WTP_ROOT}                       # /pitsec_sose26_topic8 inside the container
 dataset_root: ${WTP_ROOT}/dataset

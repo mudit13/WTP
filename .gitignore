@@ -62,6 +62,7 @@ configs/paths.env
 .config/
 .claude/
 .copilot/
+.cursor/
 .cursor-server/
 .vscode-server/
 .local/
@@ -75,3 +76,9 @@ Thumbs.db
 
 # Internal team coordination notes (kept local, not for GitHub)
 docs/OPEN_QUESTIONS.md
+
+# --- Handover packaging staging (built locally/on-server, never committed) ---
+# The git repo and the lightweight report evidence archive are packaged and shared as separate
+# artifacts (see HANDOVER.md); the archives themselves are not part of the tracked tree.
+*.tar.gz
+*.zip

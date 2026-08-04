@@ -584,7 +584,7 @@ def main(args):
 
     c = Ctx(args)
     if not args.dry_run and not args.run_id:
-        raise SystemExit("A non-dry run requires --run_id (e.g. YYYY-MM-DD_eightway_v2) "
+        raise SystemExit("A non-dry run requires --run_id (e.g. 20260804) "
                          "so results cannot mix with legacy outputs.")
     if not args.dry_run:
         _prepare_run_dir(c, args)

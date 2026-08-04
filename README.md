@@ -57,7 +57,7 @@ Use the configured interpreter for GPU or DE-FAKE work rather than bare `python`
 ```bash
 "$WTP_PY_DEFAKE" scripts/run_experiment.py \
   --dry_run \
-  --run_id <YYYYMMDD>
+  --run_id "$(date +%Y%m%d)"
 ```
 
 See [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for the full setup and run sequence.

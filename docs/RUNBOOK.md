@@ -157,7 +157,7 @@ Complete setup above once, then follow this sequence for each experiment run.
 Use a new run ID. Do not reuse an existing results directory.
 
 ```bash
-export RUN_ID="supervisor_final_<YYYYMMDD>"
+export RUN_ID="$(date +%Y%m%d)"
 export RELEASE_ID="$RUN_ID"
 ```
 

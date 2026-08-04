@@ -1,0 +1,13 @@
+# Support dependencies for the DE-FAKE and BLIP path.
+# Do not use this file to upgrade the server's pinned CUDA torch stack.
+ftfy>=6.0
+wcwidth>=0.2
+regex>=2021.8.3
+timm>=0.9
+fairscale>=0.4
+
+# OpenAI CLIP is intentionally captured by commit in the final sd15-defake lock file.
+# On a fresh environment, install a reviewed pinned revision with --no-deps so pip cannot
+# replace the working CUDA torch packages, for example:
+#   python -m pip install --no-deps \
+#     "git+https://github.com/openai/CLIP.git@<reviewed-commit>"

@@ -1,84 +1,55 @@
-# ============================================================================
-# WTP - Topic 8 unified repo .gitignore
-# Repo root maps to the container project root (/pitsec_sose26_topic8).
-# Large data, model weights, and venvs live alongside the code but are NEVER
-# committed (venvs are non-relocatable; weights/datasets are too large).
-# ============================================================================
-
-# --- Python ---
+# Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-*.pyc
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# --- Virtual environments (non-relocatable; recreate, never commit) ---
-venv/
+# Local environments and machine configuration
 .venv/
-venv_sd15/
-venv_flux1/
-venv_stylegan3/
-
-# --- Vendored upstream repo clone (large; recreate via git clone NVlabs/stylegan3) ---
-stylegan3/
-
-# --- Datasets & generated images (too large) ---
-dataset/
-*.png
-*.jpg
-*.jpeg
-
-# Local GAN-fp prototype sample (downloaded subset; local-only, never committed)
-ganfp_sample*/
-
-# --- Model weights / checkpoints (too large) ---
-models/
-*.pt
-*.pth
-*.pkl
-*.ckpt
-*.safetensors
-*.bin
-*.npz
-
-# --- Results & logs (keep the dirs, ignore contents) ---
-results/*
-!results/.gitkeep
-logs/*
-!logs/.gitkeep
-*.log
-
-# --- Local env / secrets (NEVER commit) ---
+venv/
+venv_*/
+.env
 configs/paths.env
-.ssh/
-.git-credentials
-.gitconfig
-.bash_history
-.bash_logout
-.bashrc
-.profile
 
-# --- IDE / tooling caches ---
-.cache/
-.config/
-.claude/
-.copilot/
+# IDE and OS files
+.vscode/
+.idea/
 .cursor/
-.cursor-server/
-.vscode-server/
-.local/
-.dotnet/
-.java/
-
-# --- OS cruft (these silently corrupt datasets - never commit) ---
 .DS_Store
-._*
 Thumbs.db
 
-# Internal team coordination notes (kept local, not for GitHub)
-docs/OPEN_QUESTIONS.md
+# External or generated data
+dataset/
+data/
+models/
+checkpoints/
+stylegan3/
 
-# --- Handover packaging staging (built locally/on-server, never committed) ---
-# The git repo and the lightweight report evidence archive are packaged and shared as separate
-# artifacts (see HANDOVER.md); the archives themselves are not part of the tracked tree.
-*.tar.gz
+# Model and feature artifacts
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.pkl
+*.joblib
+*.npz
+
+# Generated outputs
+logs/*
+!logs/.gitkeep
+results/*
+!results/.gitkeep
+
+# Local report/evidence archives
+*_evidence.tar.gz
 *.zip
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
+# Documentation and report images are intentionally trackable.
+# Generated dataset images remain ignored through dataset/ and results/ above.

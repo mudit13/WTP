@@ -1,10 +1,10 @@
 """
 Canonical schema for the project's CSVs, matching the EXISTING server pipeline
-(build_master_index.py / run_defake_batch.py on github.com/mudit13/WTP).
+(build_master_index.py / run_defake_batch.py on github).
 
 Centralizing the column names here means every analysis script reads/writes the same
 schema the team's generation + inference scripts already produce, so nothing has to be
-re-plumbed. ASCII-only; Python 3.9.
+re-plumbed.
 
 master_metadata.csv columns:
     filename, full_path, label, generator, category, source_dataset, width, height

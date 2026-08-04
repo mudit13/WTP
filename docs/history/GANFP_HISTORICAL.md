@@ -1,3 +1,5 @@
+> **Historical record:** This file documents a superseded research path. It is not part of the active supervisor runbook.
+
 # GAN-fp historical workstream
 
 This document preserves the method-development history of the optional GAN-fingerprint
@@ -16,15 +18,7 @@ workstream. It is not an active result source for the professor-aligned experime
 The implementation is inspired by Yu et al. (2019); it is not a byte-faithful reproduction.
 The SRM filter bank is a family-level reconstruction of Fridrich and Kodovsky (2012).
 
-## Why old metrics are omitted
 
-Prototype runs used superseded class spaces, dataset sizes, and split populations, including
-separate real-source classes that are not part of the primary eight-way task. Their numerical
-results are therefore not comparable with the authoritative run
-`2026-08-01_eightway_v1` and must not appear as final evidence.
-
-Git history and `docs/PROJECT_LOG.md` preserve the original prototype numbers and debugging
-history if process provenance is required.
 
 ## Current status
 

@@ -162,7 +162,7 @@ def test_luminance_shape_no_torch():
 
 
 # ---------------------------------------------------------------------------
-# Pure-Python (sklearn OK in CI per requirements.txt): FingerprintStandardizer / pipeline
+# Pure-Python (sklearn OK in CI): FingerprintStandardizer / pipeline
 # ---------------------------------------------------------------------------
 def test_fingerprint_standardizer_train_only():
     """Fit on a train matrix large enough that PCA is not rank-clamped; transformed train is

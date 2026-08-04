@@ -3,7 +3,7 @@ merge_predictions.py
 
 ARCHIVED (scripts/legacy/, see scripts/legacy/README.md): the unified `master_metadata.csv`
 already contains DFFD rows, so `run_defake_batch.py` scores every row in one pass and this
-separate merge step is unused by run_experiment.py or any current runbook (see docs/PIPELINE.md
+separate merge step is unused by run_experiment.py or any current runbook (see docs/RUNBOOK.md
 "Pipeline note"). Kept for history only.
 
 Concatenate the main DE-FAKE prediction CSV and the DFFD prediction CSV into a single

@@ -5,7 +5,7 @@ We freeze the CLIP backbone (we only ever consume precomputed embeddings) and le
 MLP head over the image embedding - the same recipe the GOLD review endorsed for adding
 new generator classes (FLUX, StyleGAN3) without retraining CLIP.
 
-System interpreter only (torch lives there). ASCII-only; Python 3.9.
+System interpreter only (torch lives there).
 """
 from typing import Dict, List, Tuple
 

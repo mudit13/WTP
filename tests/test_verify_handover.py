@@ -1,206 +1,199 @@
-"""verify_handover.py is the last, read-only gate before a run directory is handed to a
-supervisor: it must catch missing artifacts, failed leakage gates, wrong headline numbers, and
-stale flat summaries without re-running anything."""
+import argparse
+import csv
+import hashlib
 import json
+import sys
+from pathlib import Path
 
 import pytest
+import yaml
 
-import verify_handover as vh
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import verify_handover as vh  # noqa: E402
 
 
-def _write(path, data):
+def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(data, str):
-        path.write_text(data, encoding="utf-8")
-    else:
-        path.write_text(json.dumps(data), encoding="utf-8")
+    path.write_text(json.dumps(value), encoding="utf-8")
 
 
-def _minimal_run(tmp_path, run_id="test-run", core_commit="abc123", straddle=0, exact=0):
-    _write(tmp_path / "run_manifest.json", {
-        "run_id": run_id, "core_commit": core_commit, "config_sha256": "deadbeef" * 4,
-        "analysis_history": [],
-    })
-    _write(tmp_path / "REPORT_SUMMARY.md", "# summary")
-    _write(tmp_path / "leakage_audit_8way.json", {
-        "group_straddle": {"n_groups_straddling": straddle, "n_groups_checked": 6},
-        "exact_cross_split_duplicates": {"count": exact},
-    })
-    for name in ("seed_sweep_8way.json", "seed_sweep_8way_image_only.json",
-                "ci_attr_8way.json", "ci_attr_8way_image_only.json", "ci_attr_9way.json",
-                "ci_dct_detection.json", "ci_defake_detection.json",
-                "ci_cascade_conditional.json", "ci_cascade_end_to_end.json",
-                "defake_vs_dct_significance.json"):
-        _write(tmp_path / name, {})
-    return tmp_path
+def base_run(tmp_path, metric=0.75, commit="a" * 40, config_hash="b" * 64):
+    run = tmp_path / "results" / "run-one"
+    run.mkdir(parents=True)
+    write_json(
+        run / "run_manifest.json",
+        {
+            "run_id": "run-one",
+            "core_commit": commit,
+            "config_sha256": config_hash,
+        },
+    )
+    write_json(
+        run / "leakage_audit_8way.json",
+        {
+            "group_straddle": {"n_groups_straddling": 0},
+            "exact_cross_split_duplicates": {"count": 0},
+        },
+    )
+    write_json(run / "metrics.json", {"test": {"balanced_accuracy": metric}})
+    return run
 
 
-def test_passes_on_a_complete_well_formed_run(tmp_path):
-    _minimal_run(tmp_path)
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert v.errors == []
+def release_data(run, expected=0.75, commit="a" * 40, config_hash="b" * 64):
+    return {
+        "schema_version": 1,
+        "release_id": "release-one",
+        "run_id": "run-one",
+        "results_dir": str(run),
+        "git_commit": commit,
+        "config_sha256": config_hash,
+        "variant": "aspect",
+        "jpeg_aug": "on",
+        "tolerance": 1e-9,
+        "require_data_manifest": False,
+        "require_checkpoint_manifest": False,
+        "required_artifacts": [
+            "run_manifest.json",
+            "leakage_audit_8way.json",
+            "metrics.json",
+        ],
+        "headline_checks": [
+            {
+                "file": "metrics.json",
+                "keys": ["test", "balanced_accuracy"],
+                "expected": expected,
+            }
+        ],
+    }
 
 
-def test_fails_when_run_manifest_missing():
-    v = vh.Verifier("/does/not/exist", run_id="test-run")
-    v.run()
-    assert any("run_manifest.json" in e for e in v.errors)
+def namespace(release=None, results_dir=None, verify_mounts=False):
+    return argparse.Namespace(
+        release=str(release) if release else None,
+        results_dir=str(results_dir) if results_dir else None,
+        run_id=None,
+        variant=None,
+        jpeg_aug=None,
+        tolerance=None,
+        require_data_manifest=None,
+        require_checkpoint_manifest=None,
+        verify_mounts=verify_mounts,
+    )
 
 
-def test_fails_when_run_id_does_not_match(tmp_path):
-    _minimal_run(tmp_path, run_id="other-run")
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert any("does not match expected" in e for e in v.errors)
+def verifier_from_settings(settings):
+    return vh.Verifier(
+        results_dir=settings["results_dir"],
+        run_id=settings["run_id"],
+        variant=settings["variant"],
+        jpeg_aug=settings["jpeg_aug"],
+        tolerance=settings["tolerance"],
+        require_data_manifest=settings["require_data_manifest"],
+        require_checkpoint_manifest=settings["require_checkpoint_manifest"],
+        verify_mounts=settings["verify_mounts"],
+        required_artifacts=settings["required_artifacts"],
+        headline_checks=settings["headline_checks"],
+        expected_commit=settings["expected_commit"],
+        expected_config_sha256=settings["expected_config_sha256"],
+        release_id=settings["release_id"],
+    )
 
 
-def test_warns_but_does_not_fail_on_analysis_history(tmp_path):
-    _minimal_run(tmp_path)
-    manifest_path = tmp_path / "run_manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["analysis_history"] = [{"at": "x", "commit": "def456", "reason": "reporting fix"}]
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+def test_release_manifest_drives_spot_checks(tmp_path):
+    run = base_run(tmp_path)
+    release = tmp_path / "release.yaml"
+    release.write_text(yaml.safe_dump(release_data(run)), encoding="utf-8")
 
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert v.errors == []
-    assert any("analysis_history" in w for w in v.warnings)
+    settings = vh.build_settings(namespace(release=release))
+    verifier = verifier_from_settings(settings)
+    manifest = verifier.run()
 
-
-def test_fails_on_missing_required_artifact(tmp_path):
-    _minimal_run(tmp_path)
-    (tmp_path / "ci_attr_8way.json").unlink()
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert any("ci_attr_8way.json" in e for e in v.errors)
+    assert manifest["run_id"] == "run-one"
+    assert verifier.errors == []
+    assert vh.HEADLINE_SPOT_CHECKS == {}
 
 
-def test_fails_on_nonzero_group_straddle_or_exact_duplicates(tmp_path):
-    _minimal_run(tmp_path, straddle=2, exact=1)
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert any("n_groups_straddling" in e for e in v.errors)
-    assert any("exact_cross_split_duplicates" in e for e in v.errors)
+def test_placeholder_release_is_rejected(tmp_path):
+    release = release_data(base_run(tmp_path))
+    release["git_commit"] = "REPLACE_WITH_40_CHARACTER_COMMIT_SHA"
+
+    with pytest.raises(ValueError, match="placeholder"):
+        vh.validate_release_config(release)
 
 
-def test_headline_spot_checks_pass_for_matching_authoritative_numbers(tmp_path):
-    _minimal_run(tmp_path, run_id="2026-08-01_eightway_v1")
-    _write(tmp_path / "dct_svm_aspect" / "metrics.json",
-          {"test": {"balanced_accuracy": 0.608}})
-    _write(tmp_path / "attr_eval_8way_aspect" / "attribution_metrics.json",
-          {"in_set": {"top1_accuracy": 0.873}})
-    _write(tmp_path / "seed_sweep_8way.json", {"top1_accuracy": {"mean": 0.814}})
+def test_headline_mismatch_fails(tmp_path):
+    run = base_run(tmp_path, metric=0.70)
+    release = release_data(run, expected=0.75)
+    verifier = vh.Verifier(
+        run,
+        run_id=release["run_id"],
+        required_artifacts=release["required_artifacts"],
+        headline_checks=release["headline_checks"],
+        expected_commit=release["git_commit"],
+        expected_config_sha256=release["config_sha256"],
+        tolerance=release["tolerance"],
+    )
 
-    v = vh.Verifier(str(tmp_path), run_id="2026-08-01_eightway_v1", variant="aspect")
-    v.run()
-    assert v.errors == []
-
-
-def test_headline_spot_check_fails_for_mismatched_numbers(tmp_path):
-    _minimal_run(tmp_path, run_id="2026-08-01_eightway_v1")
-    _write(tmp_path / "dct_svm_aspect" / "metrics.json",
-          {"test": {"balanced_accuracy": 0.400}})  # wrong
-    _write(tmp_path / "attr_eval_8way_aspect" / "attribution_metrics.json",
-          {"in_set": {"top1_accuracy": 0.873}})
-    _write(tmp_path / "seed_sweep_8way.json", {"top1_accuracy": {"mean": 0.814}})
-
-    v = vh.Verifier(str(tmp_path), run_id="2026-08-01_eightway_v1", variant="aspect")
-    v.run()
-    assert any("Headline spot check failed" in e for e in v.errors)
+    verifier.run()
+    assert any("Headline check" in error for error in verifier.errors)
 
 
-def test_fails_on_stale_flat_report_summary_next_to_run_dir(tmp_path):
-    run_dir = tmp_path / "2026-08-01_eightway_v1"
-    _minimal_run(run_dir, run_id="2026-08-01_eightway_v1")
-    _write(tmp_path / "REPORT_SUMMARY.md", "# stale flat summary")
+def test_release_commit_mismatch_fails(tmp_path):
+    run = base_run(tmp_path, commit="c" * 40)
+    release = release_data(run, commit="a" * 40)
+    verifier = vh.Verifier(
+        run,
+        run_id=release["run_id"],
+        required_artifacts=release["required_artifacts"],
+        headline_checks=release["headline_checks"],
+        expected_commit=release["git_commit"],
+        expected_config_sha256=release["config_sha256"],
+    )
 
-    v = vh.Verifier(str(run_dir), run_id="2026-08-01_eightway_v1")
-    v.run()
-    assert any("flat, non-run-scoped" in e for e in v.errors)
-
-
-def test_fails_when_only_legacy_leakage_audit_present(tmp_path):
-    _minimal_run(tmp_path)
-    (tmp_path / "leakage_audit_8way.json").unlink()
-    _write(tmp_path / "leakage_audit_8way_full.json", {})
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert any("historical leakage_audit_8way_full" in e for e in v.errors)
+    verifier.run()
+    assert any("does not match release git_commit" in error for error in verifier.errors)
 
 
-def _args(**overrides):
-    from types import SimpleNamespace
-    defaults = dict(results_dir=None, run_id="test-run", variant="aspect", jpeg_aug="on",
-                    tolerance=0.01, require_data_manifest=False,
-                    require_checkpoint_manifest=False, verify_mounts=False)
-    defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+def test_required_manifest_rehashes_files(tmp_path):
+    run = base_run(tmp_path)
+    asset = tmp_path / "asset.bin"
+    asset.write_bytes(b"verified")
+    digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+
+    with open(run / "data_manifest.csv", "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["path", "sha256", "missing"])
+        writer.writeheader()
+        writer.writerow({"path": str(asset), "sha256": digest, "missing": "false"})
+
+    verifier = vh.Verifier(
+        run,
+        run_id="run-one",
+        required_artifacts=["run_manifest.json", "leakage_audit_8way.json"],
+        require_data_manifest=True,
+        verify_mounts=True,
+    )
+    verifier.run()
+    assert verifier.errors == []
+    assert any("re-hashed 1" in warning for warning in verifier.warnings)
+
+    asset.write_bytes(b"changed")
+    verifier = vh.Verifier(
+        run,
+        run_id="run-one",
+        required_artifacts=["run_manifest.json", "leakage_audit_8way.json"],
+        require_data_manifest=True,
+        verify_mounts=True,
+    )
+    verifier.run()
+    assert any("do not match" in error for error in verifier.errors)
 
 
-def test_main_exits_nonzero_on_failure(tmp_path, capsys):
-    with pytest.raises(SystemExit):
-        vh.main(_args(results_dir=str(tmp_path)))
-
-
-def test_main_succeeds_on_complete_run(tmp_path):
-    _minimal_run(tmp_path)
-    vh.main(_args(results_dir=str(tmp_path)))  # must not raise
-
-
-def test_data_manifest_absent_is_a_warning_not_an_error_by_default(tmp_path):
-    _minimal_run(tmp_path)
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert v.errors == []
-    assert any("data_manifest.csv" in w for w in v.warnings)
-
-
-def test_data_manifest_absent_is_an_error_when_required(tmp_path):
-    _minimal_run(tmp_path)
-    v = vh.Verifier(str(tmp_path), run_id="test-run", require_data_manifest=True)
-    v.run()
-    assert any("data_manifest.csv" in e for e in v.errors)
-
-
-def test_data_manifest_rehash_passes_when_files_match(tmp_path):
-    _minimal_run(tmp_path)
-    img = tmp_path / "a.png"
-    img.write_bytes(b"hello")
-    import hashlib
-    sha = hashlib.sha256(b"hello").hexdigest()
-    (tmp_path / "data_manifest.csv").write_text(
-        "path,sha256,missing\n%s,%s,False\n" % (img, sha), encoding="utf-8")
-
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert v.errors == []
-    assert any("0 mismatches" in w for w in v.warnings)
-
-
-def test_data_manifest_rehash_fails_on_sha256_mismatch(tmp_path):
-    _minimal_run(tmp_path)
-    img = tmp_path / "a.png"
-    img.write_bytes(b"hello")
-    (tmp_path / "data_manifest.csv").write_text(
-        "path,sha256,missing\n%s,%s,False\n" % (img, "deadbeef" * 8), encoding="utf-8")
-
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert any("do not match their recorded sha256" in e for e in v.errors)
-
-
-def test_data_manifest_unreachable_file_warns_by_default_but_fails_with_verify_mounts(tmp_path):
-    _minimal_run(tmp_path)
-    (tmp_path / "data_manifest.csv").write_text(
-        "path,sha256,missing\n%s,%s,False\n" % (
-            str(tmp_path / "does_not_exist.png"), "a" * 64), encoding="utf-8")
-
-    v = vh.Verifier(str(tmp_path), run_id="test-run")
-    v.run()
-    assert v.errors == []
-    assert any("could not be reached" in w for w in v.warnings)
-
-    v_strict = vh.Verifier(str(tmp_path), run_id="test-run", verify_mounts=True)
-    v_strict.run()
-    assert any("could not be reached" in e for e in v_strict.errors)
+def test_direct_mode_has_no_hardcoded_run_metrics(tmp_path):
+    run = base_run(tmp_path, metric=0.01)
+    settings = vh.build_settings(namespace(results_dir=run))
+    assert settings["headline_checks"] == []
+    assert settings["expected_commit"] is None

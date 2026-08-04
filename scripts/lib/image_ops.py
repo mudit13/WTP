@@ -8,7 +8,7 @@ confound (supervisor feedback); `resize_shortest_center_crop` is the aspect-pres
 that avoids that. Robustness perturbations deliberately DO introduce controlled degradations
 and are applied to held-out test images only.
 
-ASCII-only; Python 3.9. Uses Pillow only (no GUI).
+Uses Pillow only (no GUI).
 """
 import io
 from typing import Tuple

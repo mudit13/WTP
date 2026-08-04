@@ -6,11 +6,11 @@ Author: Mudit
 
 Generates >=100 face images from StyleGAN3-FFHQ for DE-FAKE evaluation.
 No text prompts — purely seed-based GAN generation.
-Output: /pitsec_sose26_topic8/dataset/stylegan3/
+Output: $WTP_STYLEGAN3_OUTPUT_DIR or $WTP_ROOT/dataset/stylegan3/
 
 Usage (inside Docker):
     source /pitsec_sose26_topic8/venv_stylegan3/bin/activate
-    python3.9 /pitsec_sose26_topic8/generate_stylegan3.py
+    python3.9 scripts/generate_stylegan3.py
 
 One-time setup before running:
     python3.9 -m virtualenv /pitsec_sose26_topic8/venv_stylegan3
@@ -25,7 +25,10 @@ import os
 
 # StyleGAN3 repo MUST be on sys.path before ANY other imports
 # because pickle.load needs to find StyleGAN3's custom classes during deserialization
-STYLEGAN3_REPO = "/pitsec_sose26_topic8/stylegan3"
+PROJECT_ROOT = os.environ.get("WTP_ROOT", "/pitsec_sose26_topic8")
+STYLEGAN3_REPO = os.environ.get(
+    "WTP_STYLEGAN3_REPO", os.path.join(PROJECT_ROOT, "stylegan3")
+)
 if not os.path.exists(STYLEGAN3_REPO):
     print(f"ERROR: StyleGAN3 repo not found at {STYLEGAN3_REPO}")
     print("Run this first:")
@@ -36,7 +39,7 @@ if STYLEGAN3_REPO not in sys.path:
 
 import torch
 
-# Compatibility patch: same pattern as Sushmita's SD1.5 script
+# Compatibility patch
 class _DeviceMock:
     def __getattr__(self, name):
         return lambda *args, **kwargs: None
@@ -56,17 +59,21 @@ from PIL import Image
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-OUTPUT_DIR    = Path("/pitsec_sose26_topic8/dataset/stylegan3")
-IMAGES_DIR    = OUTPUT_DIR / "images"
+OUTPUT_DIR = Path(os.environ.get(
+    "WTP_STYLEGAN3_OUTPUT_DIR", os.path.join(PROJECT_ROOT, "dataset", "stylegan3")
+))
+IMAGES_DIR = OUTPUT_DIR / "images"
 METADATA_PATH = OUTPUT_DIR / "metadata.csv"
-MODEL_CACHE   = Path("/pitsec_sose26_topic8/models")
+MODEL_CACHE = Path(os.environ.get(
+    "WTP_MODEL_CACHE", os.path.join(PROJECT_ROOT, "models")
+))
 
 # Official NVIDIA pretrained StyleGAN3-r FFHQ 1024x1024 weights
 MODEL_URL  = "https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-ffhq-1024x1024.pkl"
 MODEL_PATH = MODEL_CACHE / "stylegan3-r-ffhq-1024x1024.pkl"
 
 IMAGE_SIZE     = 512    # resize from native 1024 to 512 to match SD1.5 and FLUX.1
-NUM_IMAGES     = 108    # matches Sushmita's 108 and Vishnu's 108
+NUM_IMAGES     = 108    
 SEED_START     = 0      # seeds 0 to 107
 TRUNCATION_PSI = 0.7    # 0.7 = good balance of diversity vs quality (standard for FFHQ)
 

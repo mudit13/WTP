@@ -6,7 +6,7 @@
 #
 # Every constraint below (group-aware splitting, OpenForensics-fake staying test-only, training-
 # only JPEG augmentation, etc.) exists to satisfy a specific requirement in
-# docs/REVIEW_SAFEGUARDS.md - read that file before relaxing any of them.
+# docs/METHODOLOGY.md - read that file before relaxing any of them.
 
 root: ${WTP_ROOT}                       # /pitsec_sose26_topic8 inside the container
 dataset_root: ${WTP_ROOT}/dataset
@@ -192,8 +192,8 @@ attribution:
   merge_reals_to_single_class: true
   real_class_name: "real"
   real_sample_cap: 300
-  # Legacy aliases retained because appendix scripts still read these keys. Their union MUST
-  # equal fake_generators; tests enforce that no trained fake remains mislabeled out-of-set.
+  # Read by attribution_taxonomy.py (in_set_generators + finetune_new_classes). Must equal
+  # fake_generators; tests enforce this.
   in_set_generators: ["SD1.5", "SD1.5-img2img", "FLUX.1-schnell", "StyleGAN3-FFHQ",
                       "FaceApp", "PGGAN-v1", "PGGAN-v2", "StarGAN"]
   finetune_new_classes: []
@@ -204,7 +204,7 @@ attribution:
 # (defake_head._MLPHead). Second attribution method beside the CLIP/DE-FAKE head; targets
 # the GAN-specific traces DE-FAKE cannot attribute (StyleGAN3, DFFD families). Diffusion
 # sources are expected to mismatch (out-of-set). See scripts/lib/ganfp.py +
-# scripts/train_ganfp.py. Reproduction mandated by GOLD_ALIGNMENT.md / PROJECT_LOG section 5.
+# scripts/train_ganfp.py. Reproduction mandated by GOLD_ALIGNMENT.md / docs/history/PROJECT_LOG.md section 5.
 ganfp:
   common_size: 256        # image resize before fingerprint extraction (luminance)
   feat_size: 32           # each fingerprint block downsampled to feat_size x feat_size

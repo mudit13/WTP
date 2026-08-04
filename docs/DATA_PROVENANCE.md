@@ -1,180 +1,160 @@
-# Authoritative dataset provenance
+# Dataset provenance and limitations
 
-Run: `2026-08-01_eightway_v1` · core commit `141da128` · 2,154 indexed images
-(1,132 fake, 1,022 real).
+This document records stable provenance, preparation rules, licensing constraints, and known unknowns. Run-specific sample counts, hashes, and exact file membership belong in the final run's data manifest and release record.
 
-This document replaces the unresolved manual fields in the auto-generated `datasheets.md`.
-Unknown upstream details are stated explicitly rather than inferred.
+The previous dated provenance snapshot is retained under `docs/history/` for traceability. It does not override a newer data manifest.
 
-## Shared processing
+## Shared processing policy
 
-- `build_master_index.py` scans configured sources and applies deterministic sampling with seed 42.
-- Headline preprocessing uses aspect-preserving resize of the shortest side to 256 followed by
-  center crop and lossless PNG export.
-- JPEG q30–100 augmentation is applied to training features only. Validation/test features remain
-  clean.
-- Attribution uses a content-stable 70/10/20 train/validation/test split. DCT uses the same 20%
-  test boundary and the remaining 80% for training.
-- The corrected integrity audit reports zero explicit group straddles and zero exact cross-split
-  duplicates. dHash similarities are diagnostic only for aligned face data.
+- `scripts/build_master_index.py` scans the configured sources and applies deterministic sampling using the configured seed.
+- The headline preprocessing condition uses aspect-preserving resize followed by center crop and lossless PNG output at the configured size.
+- JPEG augmentation is applied to training features only. Validation, test, OOS, and normal evaluation features remain clean.
+- Attribution uses a stable group-aware train, validation, and test split. Detection comparisons reuse the same final test boundary where required.
+- Source images and their img2img derivatives share a group identity.
+- OpenForensics source relationships are preserved through sidecar metadata.
+- Exact cross-split duplicates and group straddles are release-blocking findings.
+- Perceptual similarity is diagnostic for aligned-face data and must be reviewed in context.
 
-## Generated fake classes
+Exact preprocessing and split settings are defined in `configs/config.yaml` and recorded by each run manifest.
 
-### SD1.5 txt2img
+## Generated fake sources
 
-- **Count/format:** 108 images, 512×512 PNG.
-- **Model:** `runwayml/stable-diffusion-v1-5`.
-- **Parameters:** 40 steps, CFG 8.5, 512×512, float16, 9 portrait prompts × 12 seeds.
-- **Seeds:** `prompt_index * 1000 + seed_index`.
-- **Prompt design:** studio/outdoor portrait variations; one shared negative-prompt block.
-- **Processing:** generated directly at 512²; no source crop; later converted to the shared
-  aspect-256 variant.
-- **Citation:** Rombach et al., *High-Resolution Image Synthesis with Latent Diffusion Models*.
-- **Unknown:** the Hugging Face revision and scheduler were not pinned/logged for this historical
-  generation run.
-- **Limitation:** fixed prompt family and native square PNG format create pre-normalization
-  source cues.
+### Stable Diffusion 1.5 text-to-image
 
-### SD1.5 img2img
+- **Model family:** `runwayml/stable-diffusion-v1-5`.
+- **Project role:** text-to-image fake source.
+- **Generation record:** prompt, seed, inference steps, guidance, dimensions, scheduler, dtype, and model revision should be written to a generation manifest.
+- **Historical limitation:** the original prepared dataset did not record every model-revision and scheduler detail. Preserve that uncertainty rather than reconstructing it from memory.
+- **Confound risk:** a fixed portrait prompt family and square PNG output can create source-specific cues before shared normalization.
 
-- **Count/format:** 108 images, 512×512 PNG, from 102 London-DB identities.
-- **Inputs:** every London-DB `neutral_front` image; six identities receive a second seeded output.
-- **Model:** `runwayml/stable-diffusion-v1-5`, revision
-  `451f4fe16113bff5a5d2269ed5ad43b0592e9a14`.
-- **Parameters:** strength 0.6, 40 steps, CFG 8.5, 512×512, seeds 200000–200107,
-  `PNDMScheduler`, torch 2.1.0+cu118.
-- **Prompt:** one fixed frontal studio portrait prompt with neutral expression, even lighting and
-  grey backdrop; negative prompt stored verbatim in `generation_manifest.json`.
-- **Input processing:** EXIF transpose → RGB → aspect-preserving center crop to 512.
-- **Grouping:** `londondb_img2img_groups.csv` keeps each source real and all derivatives under one
-  identity ID.
-- **Citations:** Stable Diffusion v1.5 and Face Research Lab London Set.
-- **Limitations:** London-only identities and one fixed studio prompt make this class visually
-  narrow. Persistent eye distortions were retained rather than cherry-picked.
+### Stable Diffusion 1.5 image-to-image
 
-### FLUX.1-schnell txt2img
+- **Source population:** neutral, front-facing Face Research Lab London Set images.
+- **Project role:** source-preserving image-to-image fake class.
+- **Grouping requirement:** every source image and all generated derivatives must share one group identity.
+- **Generation record:** model revision, strength, steps, guidance, scheduler, prompt, negative prompt, seed, source path, and output path.
+- **Confound risk:** London-only identities and a narrow studio prompt make the class visually constrained.
+- **Quality policy:** artifacts are not selectively removed merely because they make the generation method look worse, unless a documented data-quality rule applies consistently.
 
-- **Count/format:** 108 images, 512×512 PNG.
-- **Model:** `black-forest-labs/FLUX.1-schnell`.
-- **Parameters:** 4 inference steps, guidance 0.0, bfloat16, CPU offload, 9 prompts × 12 seeds.
-- **Prompts:** the same nine portrait prompts used for SD1.5 txt2img.
-- **Important detail:** the negative prompt is recorded in metadata but is not passed to the
-  FLUX pipeline call.
-- **Unknown:** model revision was not pinned in the historical generator script.
-- **Limitation:** prompt siblings across seeds are visually similar; this is not an exact-file
-  leak.
+### FLUX.1-schnell text-to-image
+
+- **Model family:** `black-forest-labs/FLUX.1-schnell`.
+- **Project role:** text-to-image fake source.
+- **Generation record:** model revision, prompt, seed, inference steps, guidance behavior, dimensions, dtype, and cache path.
+- **Historical limitation:** the original prepared dataset did not pin every model-revision detail.
+- **Confound risk:** sibling images generated from the same prompt family may be semantically similar even when they are not duplicate files.
 
 ### StyleGAN3-FFHQ
 
-- **Count/format:** 108 images, stored as 512×512 PNG.
-- **Model:** official NVIDIA NGC `stylegan3-r-ffhq-1024x1024.pkl` (`G_ema`).
-- **Parameters:** unconditional seeds 0–107, truncation ψ=0.7, constant noise.
-- **Processing:** generated at native 1024² and resized to 512² with Lanczos interpolation.
-- **Citation:** Karras et al., *Alias-Free Generative Adversarial Networks*; FFHQ training source.
-- **Unknown:** the Git commit of the server-side StyleGAN3 clone and checkpoint byte hash were not
-  recorded.
-- **Limitation:** StyleGAN3 is trained on the FFHQ manifold, directly motivating the FFHQ
-  sensitivity diagnostic.
+- **Model family:** official NVIDIA StyleGAN3 FFHQ generator.
+- **Project role:** unconditional GAN fake source.
+- **Generation record:** external repository revision, checkpoint filename and SHA-256, seeds, truncation, noise mode, native resolution, and any resize operation.
+- **Confound risk:** the generator is trained on the FFHQ manifold, so an FFHQ sensitivity analysis is required for attribution interpretation.
 
-## DFFD-provided classes
+## DFFD-provided sources
 
-All DFFD paths come from `/share/DeepFake/DFFD_Images`. The project log records that the DFFD
-bundle uses RetinaFace-aligned face images and carries CC BY-NC-SA 4.0 terms. The original DFFD
-`readme.txt` is not vendored, so exact upstream synthesis/manipulation settings must not be
-invented.
+DFFD supplies or aggregates several real and manipulated face sources used by the project. The mounted copy and its original documentation remain external. Do not infer missing upstream generation settings.
 
 ### FFHQ real
 
-- **Count/format:** deterministic sample of 300 from approximately 9,000 test images; 299×299 PNG.
-- **Origin:** FFHQ Flickr faces distributed through DFFD.
-- **Processing:** DFFD-provided aligned/cropped 299² images. The exact 1024→299 conversion is not
-  documented in this repository.
-- **Official FFHQ history:** dlib alignment/cropping to 1024² PNG; no documented learned
-  super-resolution stage.
-- **Limitation:** source manifold overlaps StyleGAN3-FFHQ.
+- **Origin:** FFHQ images distributed through the available DFFD structure.
+- **Role:** real source and potential source-manifold overlap with StyleGAN3-FFHQ.
+- **Known processing:** the project consumes the aligned/cropped files present in the mounted dataset.
+- **Unknown:** the exact conversion history of the mounted DFFD copy may not be fully documented in this repository.
 
-### PGGAN-v1 and PGGAN-v2
+### PGGAN variants
 
-- **Count/format:** 100 images each, deterministic samples from DFFD test folders; 299×299 PNG.
-- **Origin:** Progressive GAN family (Karras et al.) as distributed by DFFD.
-- **Unknown:** exact v1/v2 checkpoint distinction, training subset, seeds and synthesis parameters.
-- **Limitation:** the two classes show strong bidirectional confusion and may represent highly
-  similar generator conditions.
+- **Origin:** Progressive GAN family samples distributed through DFFD.
+- **Role:** configured fake attribution classes.
+- **Unknown:** exact checkpoint distinction, seeds, training subset, and synthesis settings unless supplied by the source documentation.
+- **Interpretation risk:** closely related variants may have strong bidirectional confusion.
 
 ### StarGAN
 
-- **Count/format:** 100 test images, 299×299 PNG.
-- **Origin:** StarGAN multi-domain face translation via DFFD.
-- **Unknown:** exact checkpoint and source/target domain for each image.
-- **Limitation:** manipulation/translation rather than unconditional synthesis.
+- **Origin:** StarGAN face translation samples distributed through DFFD.
+- **Role:** fake manipulation or translation source.
+- **Unknown:** exact checkpoint and source-to-target domain for each mounted image unless recorded upstream.
 
 ### FaceApp
 
-- **Count/format:** 100 test images, 299×299 PNG.
-- **Origin:** commercial FaceApp manipulations of FFHQ-derived faces via DFFD.
-- **Unknown:** application version, filters and exact source identities.
-- **Limitation:** commercial manipulation rather than pure synthesis; shares the FFHQ content
-  manifold.
+- **Origin:** commercial FaceApp manipulations distributed through DFFD.
+- **Role:** fake manipulation source.
+- **Unknown:** application version, selected filters, and exact source identity unless recorded upstream.
+- **Interpretation risk:** this is a commercial manipulation class, not unconditional synthesis.
 
 ## Real sources
 
-### London-DB
+### Face Research Lab London Set
 
-- **Count/format:** all 102 `neutral_front` images, 1350×1350 JPEG.
-- **Origin:** Face Research Lab London Set (DeBruine & Jones).
-- **Processing:** narrow frontal studio subset; no project-side preprocessing before indexing.
-- **Unknown:** JPEG quality and acquisition details beyond the dataset documentation.
-- **Limitation:** highly homogeneous studio source and the sole basis for SD1.5 img2img.
+- **Role:** real source and input population for SD1.5 img2img.
+- **Selected subset:** neutral, front-facing images as configured by the project.
+- **Confound risk:** a homogeneous studio population can be separable from web-crawled or generated sources.
+- **Redistribution:** confirm the dataset's academic-use and redistribution terms before sharing any image or derivative.
 
 ### CelebA
 
-- **Count/format:** deterministic sample of 320 from approximately 202,599 aligned images;
-  178×218 JPEG.
-- **Origin:** CelebA aligned-face distribution accessed through the shared DFFD location.
-- **Citation:** Liu et al., *Deep Learning Face Attributes in the Wild*.
-- **Unknown:** original JPEG quality and the exact upstream alignment history represented by the
-  server copy.
-- **Limitation:** web-crawled aligned faces differ strongly from London studio and FFHQ sources.
+- **Role:** real source.
+- **Origin:** aligned CelebA images available through the shared data location.
+- **Confound risk:** web-crawled aligned faces differ in content and acquisition from London studio and FFHQ populations.
+- **Unknown:** exact JPEG and alignment history of the mounted copy unless documented by the provider.
 
 ### OpenForensics real
 
-- **Count/format:** 300 variable-size JPEG face crops.
-- **Source:** OpenForensics polygon annotations, host source under
-  `/vol1/share/DeepFake/OpenForensics`.
-- **Documented extraction protocol:** COCO polygon bounding-box crop, Val split, deterministic
-  cap 300, seed 42, JPEG q95. The bundle contains the resulting crops/index and group sidecar,
-  not the original host extraction log.
-- **Grouping:** `source_image_id` records the source scene for coupling control.
-- **Unknown:** exact annotation IDs are not listed in the report bundle.
-- **Limitation:** variable crop geometry retains some raw metadata separability; the headline
-  aspect-normalized variant removes the global size/format cue.
+- **Role:** real crops used with explicit source-scene grouping.
+- **Preparation:** polygon or bounding-box crop from source annotations, deterministic selection, and recorded output settings.
+- **Grouping requirement:** retain `source_image_id` or equivalent source-scene identity.
+- **Confound risk:** raw crop size, format, or geometry can be predictive before shared normalization.
 
 ## External test-only source
 
-### OpenForensics-fake
+### OpenForensics fake
 
-- **Count/format:** 300 variable-size JPEG q95 manipulated-face crops.
-- **Extraction:** documented as the same annotation/crop pipeline as OpenForensics real;
-  category 1 manipulated faces.
-- **Use:** never trained by the primary eight-way head or DCT OOS model; force-scored only.
-- **Grouping:** source-photo IDs prevent paired real crops from entering DCT OOS training.
-- **Unknown:** manipulation subtype granularity and exact annotation list.
-- **Limitation:** one manipulation benchmark, not evidence for universal unseen-generator
-  generalization.
+- **Role:** unseen manipulation benchmark for detection and forced-label or rejection analysis.
+- **Training policy:** it must not enter primary model fitting, validation selection, or the closed-set output taxonomy.
+- **Grouping requirement:** related source photos must be excluded from conflicting training roles.
+- **Interpretation limit:** it is one external manipulation benchmark, not evidence of universal unseen-generator generalization.
 
-## Measured cross-dataset confounds
+## Metadata and source confounds
 
-- Raw format/size metadata is predictive: balanced accuracy 0.755, AUROC 0.857.
-- After aspect normalization, metadata-only performance is chance: balanced accuracy/AUROC 0.5.
-- OpenForensics raw crop geometry remains somewhat predictive: balanced accuracy 0.608,
-  AUROC 0.634.
-- These controls remove measured format/geometry cues but cannot remove source-content or
-  semantic differences between FFHQ, CelebA, London and text-generated faces.
+The project explicitly measures whether labels can be predicted from metadata such as image dimensions, format, or crop geometry. Shared normalization can remove measured global format cues, but it cannot remove all source-content or semantic differences between datasets.
 
-## Known unknowns to preserve in the report
+Every report should disclose:
 
-1. SD1.5 txt2img and FLUX revisions were not pinned.
-2. Exact DFFD generator checkpoints/settings are unavailable in the repository.
-3. Exact sampled filename lists are reproducible from seed/config but are not bundled separately.
-4. London/CelebA JPEG parameters are unknown.
-5. DFFD RetinaFace/alignment details rely on the server readme summary, not a vendored source file.
+- which real source populations support each fake source
+- whether a generator was trained on or derived from a real source used in evaluation
+- prompt-family restrictions
+- resolution and format differences before normalization
+- missing upstream generation details
+- whether metadata-only probes remain above chance
+
+## Run-specific provenance
+
+A final release must include:
+
+- canonical index used by the run
+- data manifest with SHA-256 hashes or approved directory-level evidence
+- generation manifests for project-generated datasets
+- group maps
+- split and leakage-audit outputs
+- config hash
+- checkpoint manifest
+
+Counts and exact filenames should be read from those artifacts. Do not keep updating this stable document with each run's headline metrics.
+
+## Redistribution policy
+
+Do not commit or package raw DFFD, OpenForensics, London Set, CelebA, or FFHQ-derived images unless the applicable terms permit it. Do not redistribute supervisor-provided checkpoints or external generator weights without authorization.
+
+A lightweight handover archive should contain code-independent evidence such as metric JSON, summary CSV, manifests, and logs, subject to path-sensitivity review. See [`RUNBOOK.md`](RUNBOOK.md) for the packaging procedure.
+
+## Known unknowns to preserve
+
+Unless a new generation or source manifest resolves them, preserve these uncertainties:
+
+1. historical SD1.5 text-to-image and FLUX.1 revisions may not be pinned
+2. exact DFFD generator checkpoints and settings may be unavailable
+3. exact upstream JPEG and alignment histories may be incomplete
+4. commercial manipulation versions and parameters may be unavailable
+5. source documentation may be accessible on the server but not redistributable in Git
+
+Unknown does not mean unimportant. It is a documented limitation and should remain visible in the final report.

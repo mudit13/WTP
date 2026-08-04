@@ -4,7 +4,6 @@ IO and config helpers shared across the pipeline.
 - Loads configs/config.yaml and resolves ${VAR} placeholders from configs/paths.env
   (falling back to the real process environment).
 - Provides timestamped logging into logs/.
-- ASCII-only; Python 3.9 compatible.
 """
 import logging
 import os
@@ -71,7 +70,7 @@ def load_config(config_path: str, env_file: Optional[str] = None) -> dict:
         import yaml
     except ImportError as exc:  # pragma: no cover
         raise SystemExit(
-            "Missing dependency pyyaml. Run: pip install -r requirements.txt") from exc
+            "Missing dependency pyyaml. Run: pip install -r requirements/base.txt") from exc
     with open(config_path, "r", encoding="utf-8") as handle:
         config = yaml.safe_load(handle)
     env = load_env(env_file)

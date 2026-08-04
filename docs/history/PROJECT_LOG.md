@@ -1,3 +1,5 @@
+> **Historical record:** Paths and commands below reflect the repository at the time of each entry. Use `docs/RUNBOOK.md` and `docs/EXPERIMENTS.md` for current guidance.
+
 # Project log - changes and the reasons behind them
 
 > **Status: historical record only.** The authoritative run `2026-08-01_eightway_v1` is

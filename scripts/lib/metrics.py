@@ -11,7 +11,6 @@ Robustness:
     performance drop, confidence drop, label-flip rate.
 
 All functions take numpy arrays and return plain dicts/arrays so results serialize cleanly.
-ASCII-only; Python 3.9.
 """
 from typing import Dict, List, Optional, Sequence
 

@@ -9,7 +9,7 @@ source name, e.g. London-DB / FFHQ).
 If a captions CSV (full_path, blip_caption) is provided, features are the faithful DE-FAKE
 1024-dim image+text embedding; otherwise the 512-dim image embedding.
 
-DE-FAKE interpreter only (venv_sd15 on the server). ASCII-only; Python 3.9.
+DE-FAKE interpreter only (venv_sd15 on the server).
 """
 import hashlib
 import json

@@ -2,22 +2,20 @@
 """
 FLUX.1-schnell txt2img Generation Script
 PITSEC SoSe26 - Topic 8: AI Image Detection & Attribution
-Author: Vishnu
 
 Generates >=100 images from FLUX.1-schnell for DE-FAKE evaluation.
-Output: /pitsec_sose26_topic8/dataset/flux1_txt2img/
+Output: $WTP_FLUX1_OUTPUT_DIR or $WTP_ROOT/dataset/flux1_txt2img/
 
 Usage (inside Docker) - FLUX uses its OWN venv (venv_flux1), not venv_sd15:
     source /pitsec_sose26_topic8/venv_flux1/bin/activate
     python3.9 scripts/generate_flux1_txt2img.py
 
-NOTE: output/model paths below are hardcoded to the container layout
-(/pitsec_sose26_topic8/...). This is intentional for the generation scripts (the data lives
-there regardless of repo location); the analysis scripts use configs/paths.env instead.
+Paths default to WTP_ROOT and can be overridden with WTP_FLUX1_OUTPUT_DIR and
+WTP_MODEL_CACHE from configs/paths.env.
 """
 
 import torch
-# Compatibility patch: same as Sushmita's SD1.5 script
+# Compatibility patch: same as SD1.5 script
 class _DeviceMock:
     def __getattr__(self, name):
         return lambda *args, **kwargs: None
@@ -33,15 +31,19 @@ for _dev in ["xpu", "mps", "npu", "mlu", "musa"]:
 
 from diffusers import FluxPipeline
 import csv
+import os
 from pathlib import Path
 from datetime import datetime
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-OUTPUT_DIR    = Path("/pitsec_sose26_topic8/dataset/flux1_txt2img")
-IMAGES_DIR    = OUTPUT_DIR / "images"
+PROJECT_ROOT = Path(os.environ.get("WTP_ROOT", "/pitsec_sose26_topic8"))
+OUTPUT_DIR = Path(os.environ.get(
+    "WTP_FLUX1_OUTPUT_DIR", str(PROJECT_ROOT / "dataset" / "flux1_txt2img")
+))
+IMAGES_DIR = OUTPUT_DIR / "images"
 METADATA_PATH = OUTPUT_DIR / "metadata.csv"
-MODEL_CACHE   = Path("/pitsec_sose26_topic8/models")
+MODEL_CACHE = Path(os.environ.get("WTP_MODEL_CACHE", str(PROJECT_ROOT / "models")))
 MODEL_ID      = "black-forest-labs/FLUX.1-schnell"
 
 NUM_STEPS        = 4      # FLUX.1-schnell is optimized for 4 steps
@@ -60,7 +62,7 @@ NEGATIVE_PROMPT = (
     "crossed eyes, misaligned eyes, asymmetric face, wall-eye, lazy eye, "
     "uneven eyes, different sized eyes, squinting, airbrushed, plastic skin"
 )
-# 9 prompts - identical to Sushmita's SD1.5 for cross-generator consistency
+# 9 prompts - identical to SD1.5 for cross-generator consistency
 PROMPTS = [
     # Expression variants (subtle, closed-mouth)
     "RAW photo, photorealistic studio portrait of a person with a warm genuine smile, "
@@ -156,7 +158,7 @@ def generate(pipe, existing_files):
     for p_idx, prompt in enumerate(PROMPTS):
         for s_idx in range(SEEDS_PER_PROMPT):
 
-            # deterministic seed: same scheme as Sushmita for consistency
+            # deterministic seed
             seed     = p_idx * 1000 + s_idx
             filename = f"flux1_txt2img_p{p_idx:02d}_s{s_idx:03d}.png"
             count    = done + skipped + 1

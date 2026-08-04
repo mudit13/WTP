@@ -2,10 +2,10 @@
 """
 SD 1.5 txt2img Generation Script
 PITSEC SoSe26 - Topic 8: AI Image Detection & Attribution
-Author: Sushmita
  
 Generates ≥100 images from SD 1.5 for DE-FAKE evaluation.
-Output: /pitsec_sose26_topic8/dataset/sd15_txt2img/
+Output: $WTP_SD15_OUTPUT_DIR or $WTP_ROOT/dataset/sd15_txt2img/
+Paths default to WTP_ROOT and can be overridden through configs/paths.env.
 """
  
 import torch
@@ -16,15 +16,19 @@ if not hasattr(torch, 'xpu'):
  
 from diffusers import StableDiffusionPipeline
 import csv
+import os
 from pathlib import Path
 from datetime import datetime
  
 # ── Configuration ──────────────────────────────────────────────────────────────
  
-OUTPUT_DIR    = Path("/pitsec_sose26_topic8/dataset/sd15_txt2img")
-IMAGES_DIR    = OUTPUT_DIR / "images"
+PROJECT_ROOT = Path(os.environ.get("WTP_ROOT", "/pitsec_sose26_topic8"))
+OUTPUT_DIR = Path(os.environ.get(
+    "WTP_SD15_OUTPUT_DIR", str(PROJECT_ROOT / "dataset" / "sd15_txt2img")
+))
+IMAGES_DIR = OUTPUT_DIR / "images"
 METADATA_PATH = OUTPUT_DIR / "metadata.csv"
-MODEL_CACHE   = Path("/pitsec_sose26_topic8/models")   # persistent cache
+MODEL_CACHE = Path(os.environ.get("WTP_MODEL_CACHE", str(PROJECT_ROOT / "models")))
 MODEL_ID      = "runwayml/stable-diffusion-v1-5"
  
 NUM_STEPS        = 40     # increased from 30 for better detail

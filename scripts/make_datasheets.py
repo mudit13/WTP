@@ -4,7 +4,7 @@ Auto-fill the measurable parts of the per-dataset datasheets from master_metadat
 
 Emits results/datasheets.md with one section per dataset, pre-filling count, resolution
 statistics, and on-disk format. Provenance/processing-history fields are left as TODO
-markers to be completed manually (and confirmed with the supervisor), per docs/DATASHEET_TEMPLATE.md.
+markers to be completed manually (and confirmed with the supervisor), per templates/dataset_datasheet.md.
 
 Usage:
   /usr/bin/python3.9 scripts/make_datasheets.py --metadata results/master_metadata.csv \
@@ -38,7 +38,7 @@ def main(args):
     lines = ["# Auto-generated dataset datasheets",
              "",
              "Measurable fields are auto-filled. Replace every TODO with confirmed",
-             "provenance (see docs/DATASHEET_TEMPLATE.md). Confirm with the supervisor.",
+             "provenance (see templates/dataset_datasheet.md). Confirm with the supervisor.",
              ""]
     for name, group in df.groupby(schema.DATASET):
         exts = group[schema.PATH].apply(lambda p: os.path.splitext(p)[1].lower())

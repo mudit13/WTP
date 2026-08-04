@@ -50,7 +50,7 @@ order-ambiguous, a distinct DC-suppressed kernel from the same family is used.
 
 torch is imported INSIDE the class bodies / forward / __init__ so importing ganfp_net NEVER
 pulls torch at module top (CI runs with no torch; the torch tests use pytest.importorskip).
-Module top-level = stdlib + numpy only. ASCII-only; Python 3.9.
+Module top-level = stdlib + numpy only.
 
 Interpreter:
   - CPU/local prototype: system Python (torch optional; the CNN path is exercised under the

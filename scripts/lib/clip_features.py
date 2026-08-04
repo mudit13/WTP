@@ -10,7 +10,6 @@ learn only a small MLP head. This module supports:
     run_defake_batch.py already emits a blip_caption per image, so we can reuse them).
 
 Run with the DE-FAKE interpreter (venv_sd15 on the server: it has clip + torch).
-ASCII-only; Python 3.9.
 """
 from typing import List, Optional, Tuple
 
@@ -30,7 +29,7 @@ def get_clip(model_name: str = "ViT-B/32", device: str = "cuda"):
         raise SystemExit(
             "CLIP/torch not importable. Run with the DE-FAKE interpreter "
             "$WTP_PY_DEFAKE (= venv_sd15), which has clip + torch installed; see "
-            "docs/ENVIRONMENTS.md."
+            "docs/RUNBOOK.md."
         ) from exc
 
     if device == "cuda" and not torch.cuda.is_available():

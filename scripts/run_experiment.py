@@ -2,13 +2,13 @@
 """
 One-command experiment orchestrator for the WTP Topic 8 pipeline.
 
-This is a THIN wrapper over the existing per-stage scripts documented in docs/PIPELINE.md -
+This is a THIN wrapper over the existing per-stage scripts documented in docs/RUNBOOK.md -
 it introduces no new science, it just runs the stages in the right order with consistent
 variant / jpeg-aug / path naming so a single command reproduces a full run. Every stage still
 shells out to the same script you would call by hand, so behaviour matches the runbook exactly.
 
 Interpreter: the sub-scripts need the DE-FAKE venv (CLIP + torch). By default we invoke them
-with $WTP_PY_DEFAKE (falling back to this interpreter), matching PIPELINE.md.
+with $WTP_PY_DEFAKE (falling back to this interpreter), matching RUNBOOK.md.
 
 Examples:
   # headline confound-controlled run (aspect variant, JPEG-aug on), just print the plan:
@@ -194,11 +194,7 @@ class Ctx:
         self.master = f"{self.ds}/master_metadata.csv"
         pred_tag = self.run_id or "legacy"
         self.pred = f"{self.ds}/defake_predictions_{pred_tag}_{self.variant}.csv"
-        # Captions source for the faithful DE-FAKE 1024-dim image+text features. Prefer an
-        # explicit override, then a project-wide merged file if it exists, else the same-variant
-        # detect output (created by the `detect` stage; its full_paths match this index, so
-        # captions join cleanly). This avoids hard-coding a `defake_predictions_all.csv` that
-        # may not exist on a fresh setup (which crashed the fine-tune while reading it).
+        # explicit override, or fall back to the same-variant detect output
         self.captions = args.captions_csv or self.pred
         # This path is always the CLEAN eval cache. Training-only JPEG features are written to
         # features_cache.training_aug_cache_path(self.feats) by the trainers.
@@ -219,9 +215,7 @@ class Ctx:
             if self.jpeg_aug == "on" else self.dct_feats)
         self.dct_svm_out = f"{self.results}/dct_svm_{self.variant}/"
         self.robust_dir = f"{self.results}/robust"
-        # Shared train/test split (content-stable, group-aware) - one location so every stage
-        # that needs it (dct, robustness) points at the SAME files instead of recomputing the
-        # path string independently (that drift is exactly how the dct/robustness leak crept in).
+        # single shared split path so dct and robustness always use the same boundary
         self.train_index = f"{self.results}/train_index.csv"
         self.test_index = f"{self.results}/test_index.csv"
         self.perturbations = _perturbation_names(self.cfg)
@@ -265,8 +259,6 @@ def stage_confound(c):
 
 
 def stage_detect(c):
-    # run_defake_batch.py mirrors DE-FAKE test.py (squash to 224); feed it the aspect variant
-    # index via env to geometry-control detection (see docs/PIPELINE.md).
     env = dict(os.environ, WTP_MASTER_CSV=c.index, WTP_PRED_CSV=c.pred)
     return [
         _step("DE-FAKE detection inference", [c.py, c.s("run_defake_batch.py")], env=env),
@@ -277,11 +269,7 @@ def stage_detect(c):
 
 def stage_dct(c):
     steps = [
-        # MUST run before the "random split" SVM training below: dct_svm.py --test_index
-        # matches the SVM's train/test boundary to this file exactly (leakage fix - the
-        # robustness pipeline used to score the SVM partly on its own training rows because it
-        # drew its own internal binary-stratified split instead of reusing this one). Ordering
-        # matters here, unlike the other steps in this file.
+        # must run first: make_split sets the shared boundary that dct_svm --test_index enforces
         _step("Make split (train/test index)", [c.py, c.s("make_split.py"), "--config", c.cfg,
               "--index", c.index, "--train_out", c.train_index, "--test_out", c.test_index]),
         _step("DCT clean feature extraction",
@@ -446,13 +434,7 @@ def stage_rigor(c):
 
 
 def stage_ganfp(c):
-    # benchmark_attribution.py's --jpeg_aug is a bare flag (action="store_true"), UNLIKE
-    # train_ganfp.py/train_ganfp_cnn.py's --jpeg_aug {auto,on,off} choice flag - append it
-    # conditionally rather than passing c.jpeg_aug as a value (that would fail argparse or,
-    # worse, silently take "off" as an unrecognized positional). --device also defaults to
-    # "cpu" in that script (unlike train_ganfp_cnn.py, which defaults to "cpu" too but is
-    # already passed --device above) - without it, the benchmark's Path B CNN silently trains
-    # on CPU even when --device cuda was requested for everything else in this run.
+    # --jpeg_aug in benchmark_attribution.py is a bare flag, not a value flag; append conditionally
     bench_cmd = [c.py, c.s("benchmark_attribution.py"), "--config", c.cfg, "--index", c.index,
                  "--out_dir", f"{c.results}/ganfp_benchmark_{c.variant}/",
                  "--defake_csv", f"{c.finetune_out}finetune_per_image.csv",
@@ -476,12 +458,7 @@ def stage_ganfp(c):
 def stage_robustness(c):
     """Generate perturbations from the CURRENT test split, then score DE-FAKE + DCT-SVM +
     attribution on the SAME perturbed set (apples-to-apples method comparison)."""
-    # Same files as stage_dct's "Make split" step (see Ctx.train_index/test_index) - the
-    # DCT-SVM trained in stage_dct MUST have been trained with --test_index pointed at this
-    # SAME file, or its "clean" baseline here is not actually held out. Re-running make_split.py
-    # here too is deliberate/idempotent (deterministic seed + content-stable + group-aware
-    # hashing) so `--stages robustness` alone still works without requiring `dct` to have run
-    # first in the SAME invocation.
+    # re-running make_split is idempotent; allows --stages robustness to work standalone
     train_idx = c.train_index
     test_idx = c.test_index
     rd = c.robust_dir
@@ -655,7 +632,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="Orchestrate the WTP pipeline stages (see PIPELINE.md).")
+    p = argparse.ArgumentParser(description="Orchestrate the WTP pipeline stages (see RUNBOOK.md).")
     p.add_argument("--config", default="configs/config.yaml")
     p.add_argument("--variant", default="aspect", choices=["aspect", "scaled", "cropped"],
                    help="Preprocessing variant index to run on (aspect = confound-controlled).")

@@ -17,10 +17,10 @@ expected to mismatch (out-of-set) - documented behavior, not a failure.
 
 No pretrained GAN-fp weights exist (models/ holds DE-FAKE + generators only) and the legacy
 /workspace/GANFingerprints repo is Chainer/cupy (dead), so this reproduces the method in
-PyTorch over our generators (REVIEW_SAFEGUARDS.md; PROJECT_LOG section 5).
+PyTorch over our generators (METHODOLOGY.md; docs/history/PROJECT_LOG.md section 5).
 
 This module is numpy/scipy/Pillow only - torch is NOT imported here (the classifier lives in
-defake_head). Safe to import under any interpreter, including CI (no torch). ASCII; Python 3.9.
+defake_head). Safe to import under any interpreter, including CI (no torch).
 """
 import hashlib
 import json
@@ -279,31 +279,15 @@ def build_features(index_csv: str, cache_path: Optional[str], common_size: int =
 
 # --- PCA / standardization pipeline (train-only fit, NO leakage) -------------
 class FingerprintStandardizer:
-    """StandardScaler + PCA, fit on TRAIN indices ONLY.
+    """StandardScaler + PCA fitted on training data only.
 
-    Wraps sklearn.preprocessing.StandardScaler and sklearn.decomposition.PCA so the
-    GAN-fp feature path (residual+spectrum vectors from extract_fingerprints) gets a
-    lower-dimensional, decorrelated input for defake_head._MLPHead while keeping the
-    leakage guard explicit: fit() sees only X_train, transform() is applied to val/test.
+    Contract: fit() sees only X_train; transform() applies those parameters to val/test
+    without refitting (leakage guard, tested in tests/test_ganfp.py).
 
-    Contract (asserted by tests/test_ganfp.py):
-      - fit(X_train) learns mean_/scale_ and the PCA rotation from TRAIN ONLY;
-      - transform(X_train) is approximately zero-mean, unit-variance;
-      - transform(X_val) is NOT standardized (val keeps train's mean/scale) -> the
-        dedicated leakage-guard test asserts this.
+    Optional DCT fusion: when dct_features is provided to fit()/transform(), a second
+    scaler+PCA is fit on the DCT channel and concatenated (config.ganfp.pca.dct_fuse).
 
-    mean_/scale_/PCA components are stored as float32 numpy arrays so the whole
-    pipeline can be serialized into the metrics JSON / a .npz sidecar alongside the head.
-
-    Optional DCT fusion: when dct_features is provided to fit()/transform(), a SECOND
-    scaler+PCA is fit independently on the DCT channel and concatenated after the
-    residual/spectrum PCA vector (additive, not replacing). This isolates whether the
-    8x8 block-DCT adds discriminative signal beyond the residual+spectrum fingerprint
-    (controlled by config.ganfp.pca.dct_fuse).
-
-    sklearn is imported INSIDE the methods so importing ganfp never pulls sklearn at
-    module load (CI stays sklearn-import-clean until a FingerprintStandardizer is
-    actually constructed and fitted). ASCII; Python 3.9.
+    sklearn is imported lazily so importing ganfp never pulls it at module load.
     """
 
     def __init__(self, pca_components: int = 64,

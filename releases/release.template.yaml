@@ -1,0 +1,52 @@
+schema_version: 1
+
+# Replace every placeholder after the final server run.
+release_id: "REPLACE_WITH_RELEASE_ID"
+run_id: "REPLACE_WITH_RUN_ID"
+results_dir: "results/REPLACE_WITH_RUN_ID"
+git_commit: "REPLACE_WITH_40_CHARACTER_COMMIT_SHA"
+config: "configs/config.yaml"
+config_sha256: "REPLACE_WITH_CONFIG_SHA256"
+
+# Used to expand {variant} and {augtag} in artifact paths.
+variant: "aspect"
+jpeg_aug: "on"
+tolerance: 0.000001
+
+require_data_manifest: true
+require_checkpoint_manifest: true
+
+required_artifacts:
+  - run_manifest.json
+  - REPORT_SUMMARY.md
+  - leakage_audit_8way.json
+  - seed_sweep_8way.json
+  - seed_sweep_8way_image_only.json
+  - ci_attr_8way.json
+  - ci_attr_8way_image_only.json
+  - ci_attr_9way.json
+  - ci_dct_detection.json
+  - ci_defake_detection.json
+  - ci_cascade_conditional.json
+  - ci_cascade_end_to_end.json
+  - defake_vs_dct_significance.json
+
+# Expected values must be copied from this run's generated artifacts.
+# Add, remove, or rename checks to match the approved report scope.
+headline_checks:
+  - file: "dct_svm_{variant}/metrics.json"
+    keys: ["test", "balanced_accuracy"]
+    expected: "REPLACE_WITH_NUMERIC_VALUE"
+
+  - file: "attr_eval_8way_{variant}/attribution_metrics.json"
+    keys: ["in_set", "top1_accuracy"]
+    expected: "REPLACE_WITH_NUMERIC_VALUE"
+
+  - file: "seed_sweep_8way.json"
+    keys: ["top1_accuracy", "mean"]
+    expected: "REPLACE_WITH_NUMERIC_VALUE"
+
+notes:
+  scope: "REPLACE_WITH_APPROVED_REPORT_SCOPE"
+  created_by: "REPLACE_WITH_NAME_OR_ROLE"
+  created_at_utc: "REPLACE_WITH_ISO_8601_TIMESTAMP"

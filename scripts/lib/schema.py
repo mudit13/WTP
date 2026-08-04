@@ -1,5 +1,5 @@
 """
-Canonical schema for the project's CSVs, matching the EXISTING server pipeline
+Canonical schema for the project's CSVs, matching the server pipeline
 (build_master_index.py / run_defake_batch.py on github).
 
 Centralizing the column names here means every analysis script reads/writes the same

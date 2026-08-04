@@ -82,9 +82,9 @@ def build_features(index_csv: str,
     schema columns. When captions_csv is given, X is 1024-dim image+text.
 
     When jpeg_aug is True, each image is pushed through a random JPEG quality (per-path
-    deterministic) before CLIP - the format/compression confound control. A cache is reused
-    ONLY when its full signature (index + captions content, model, jpeg params, seed) matches;
-    otherwise it is recomputed, so stale features can never silently back a new experiment.
+    deterministic) before CLIP - the format/compression confound control. The cache is reused
+    only when its full signature (index + captions content, model, jpeg params, seed) matches;
+    otherwise it's recomputed, so stale features never silently back a new experiment.
     """
     sig = _signature(index_csv, captions_csv, model_name, jpeg_aug, jpeg_quality_range, seed)
     if cache_path and os.path.exists(cache_path) and not force:

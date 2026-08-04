@@ -26,7 +26,7 @@ def main(args):
     seed = config.get("seed", 42)
 
     # Group-aware split (same-source-photo coupling fix, e.g. OpenForensics real+fake crop
-    # pairs kept on the SAME side of train/test); see finetune_defake_head.py for details.
+    # pairs kept on the same side of train/test); see finetune_defake_head.py for details.
     # No-op when no sidecar is found, or falls back to sklearn's plain stratified split when a
     # class has <2 members (the content-stable hash split needs stratify-by-class like sklearn
     # does, but degenerate single-member classes are rare/edge-case only).

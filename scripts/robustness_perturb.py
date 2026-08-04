@@ -87,7 +87,7 @@ def generate(args, logger):
 def score(args, logger):
     clean = pd.read_csv(args.clean)
     pert = pd.read_csv(args.perturbed)
-    # Perturbed rows must carry source_path (the ORIGINAL image's full_path) so the clean<->pert
+    # Perturbed rows must carry source_path (the original image's full_path) so the clean<->pert
     # join can align. run_defake_batch propagates it, but the DCT (features->SVM) and attribution
     # per-image CSVs are keyed only by the perturbed full_path. Recover source_path for those from
     # the perturbation index (full_path -> source_path) instead of failing.

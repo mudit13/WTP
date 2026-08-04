@@ -5,18 +5,18 @@ OpenForensics same-source-photo coupling audit.
 OpenForensics scene photos contain MULTIPLE face annotations - some genuine
 (category_id 0 -> our "real"/OpenForensics), some manipulated (category_id 1 ->
 "fake"/OpenForensics-fake). extract_openforensics.py crops each annotation independently and
-names the crop by ANNOTATION id (openforensics_<split>_<ann_id>.jpg), dropping the source
-IMAGE id. Our train/val/test split then keys on the crop's full_path, so a real crop and a fake
-crop cropped from the EXACT SAME source photograph (same camera, lighting, background, JPEG
+names the crop by annotation id (openforensics_<split>_<ann_id>.jpg), dropping the source
+image id. Our train/val/test split then keys on the crop's full_path, so a real crop and a fake
+crop cropped from the exact same source photograph (same camera, lighting, background, JPEG
 history) can land on opposite sides of the split. That is a same-source leak the dHash
-near-duplicate audit (audit_split_leakage.py) will NOT catch, because a real face crop and a
-fake face crop from one photo are different image REGIONS (different pixels, often different
+near-duplicate audit (audit_split_leakage.py) will not catch, because a real face crop and a
+fake face crop from one photo are different image regions (different pixels, often different
 subjects even) - they look nothing alike under perceptual hashing even though they share
 acquisition statistics.
 
-This script quantifies the coupling WITHOUT re-running extraction: it re-parses the ORIGINAL
+This script quantifies the coupling without re-running extraction: it re-parses the original
 OpenForensics polygon JSON(s) (metadata only, no image decoding) to recover annotation_id ->
-image_id PER SPLIT, matches that against the already-extracted crop filenames (both the split
+image_id per split, matches that against the already-extracted crop filenames (both the split
 and the ann_id are embedded in the filename), and cross-references with the current
 train/val/test split.
 
@@ -43,7 +43,7 @@ Reports:
     the output JSON for why it can look alarming even when everything works correctly
   - a handful of concrete example groups for spot-checking (train_fit_leak examples first)
 
-Usage (needs the ORIGINAL OpenForensics polygon JSON(s), e.g. on the host where
+Usage (needs the original OpenForensics polygon JSON(s), e.g. on the host where
 /vol1/share/DeepFake/OpenForensics is mounted, or a copy). Single split:
   python3 scripts/audit_openforensics_coupling.py \
       --polygon_json /vol1/share/DeepFake/OpenForensics/Val_poly.json \
@@ -99,13 +99,13 @@ def _split_from_json_path(path):
 
 def _load_ann_to_image(polygon_json_paths, logger):
     """(split, annotation_id) -> image_id, unioned across every given polygon JSON (metadata
-    only). MUST be keyed per split, not by annotation_id alone: COCO-style ids are only
-    guaranteed unique WITHIN one split's export - Val_poly.json and Train_poly.json can (and in
+    only). Must be keyed per split, not by annotation_id alone: COCO-style ids are only
+    guaranteed unique within one split's export - Val_poly.json and Train_poly.json can (and in
     OpenForensics's case, do) reuse the same small integer ids for completely unrelated
     annotations/images. A bare ann_id->image_id dict would let a later --polygon_json file
     silently overwrite an earlier split's mapping on any id collision, corrupting the coupling
     counts for whichever rows got mapped to the wrong photo. The split itself comes from the
-    JSON's OWN filename (e.g. "Val_poly.json" -> "Val"), matching extract_openforensics.py's
+    JSON's own filename (e.g. "Val_poly.json" -> "Val"), matching extract_openforensics.py's
     `source_split`/filename convention exactly."""
     ann_to_image = {}
     for jp in polygon_json_paths:
@@ -134,9 +134,9 @@ def _classify_coupled_groups(both_classes):
       - same_side: every member has the identical split label
       - train_test_bridge: real_splits and fake_splits are both non-empty and DIFFER as SETS
         (a slightly narrower cut of straddling)
-      - train_fit_leak: THE metric that actually matters - one label's crop was actually FIT ON
-        ("train") while the OTHER label's crop is anywhere else (val/test/unseen). This is
-        deliberately NOT the same as "straddling": a label permanently excluded from
+      - train_fit_leak: the metric that actually matters - one label's crop was actually fit on
+        ("train") while the other label's crop is anywhere else (val/test/unseen). This is
+        not the same as "straddling": a label permanently excluded from
         train/val/test by design (e.g. an out-of-set generator, always "unseen") will straddle
         against its sibling whenever that sibling is anywhere but "unseen" itself (val/test
         membership is not leakage either - the model's weights are never fit on those), so raw
@@ -178,7 +178,7 @@ def main(args):
     else:
         if not (args.index and args.config):
             raise SystemExit("--index and --config required for finetune mode")
-        # --group_map matters here for the SAME reason documented in
+        # --group_map matters here for the same reason documented in
         # audit_split_leakage.py._finetune_splits: this script often has to run on the HOST
         # (e.g. to reach /vol1), where config-driven auto-detection of the sidecar path
         # (built from the container-absolute config["dataset_root"]) silently finds nothing and
@@ -318,8 +318,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Quantify OpenForensics same-source-photo real/fake split coupling.")
     parser.add_argument("--polygon_json", nargs="+", required=True,
-                        help="Path(s) to the ORIGINAL OpenForensics *_poly.json file(s) covering "
-                             "EVERY split the extraction actually drew from (e.g. just "
+                        help="Path(s) to the original OpenForensics *_poly.json file(s) covering "
+                             "every split the extraction actually drew from (e.g. just "
                              "Val_poly.json if --splits Val was used; pass Train/Test-Dev/"
                              "Test-Challenge too if an older/ad-hoc extraction script's default "
                              "covered more than Val). Rows whose crop filename references a "

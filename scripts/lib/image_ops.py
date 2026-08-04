@@ -5,8 +5,8 @@ Three preprocessing strategies are provided (scaling vs cropping vs aspect-prese
 resize+crop); all write lossless PNG to avoid stacking JPEG artifacts. `scale_to` (squash)
 DISTORTS non-square images and can turn the format/resolution confound into an aspect-ratio
 confound (supervisor feedback); `resize_shortest_center_crop` is the aspect-preserving option
-that avoids that. Robustness perturbations deliberately DO introduce controlled degradations
-and are applied to held-out test images only.
+that avoids that. Robustness perturbations, by contrast, intentionally introduce controlled
+degradations and are applied to held-out test images only.
 
 Uses Pillow only (no GUI).
 """

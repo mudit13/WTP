@@ -13,10 +13,10 @@ Features mirror training: 1024-dim CLIP image+text when --captions_csv is given 
 fine-tune). JPEG augmentation is OFF here on purpose - for perturbed inputs the perturbation is
 already baked into the image; we must not add a second random re-compression on top.
 
-CAPTION REMAPPING FOR PERTURBED INDICES: --captions_csv is keyed by full_path, but a
-robustness_perturb.py perturbation index's full_path values point at the NEW perturbed images
+Caption remapping for perturbed indices: --captions_csv is keyed by full_path, but a
+robustness_perturb.py perturbation index's full_path values point at the new perturbed images
 (e.g. dataset/robust/jpeg30/...), which never appear as a key in a captions CSV built from the
-ORIGINAL images. Without remapping, every perturbed row's caption lookup misses and silently
+original images. Without remapping, every perturbed row's caption lookup misses and silently
 falls back to "" (features_cache.build_features's cap_map.get(p, "")), so perturbed attribution
 robustness would be measuring "image perturbation + captions unexpectedly going empty" conflated
 together, while the clean baseline (test_index.csv, no source_path column) correctly gets real
@@ -42,8 +42,8 @@ from lib import io_utils, metrics, features_cache, defake_head, schema  # noqa: 
 
 def _resolve_captions_csv(index_csv, captions_csv, scratch_dir, logger):
     """If index_csv has a source_path column (a robustness_perturb.py perturbation index),
-    build a temporary captions CSV keyed by the CURRENT (perturbed) full_path, with each
-    caption looked up via that row's source_path in the ORIGINAL captions_csv - so a perturbed
+    build a temporary captions CSV keyed by the current (perturbed) full_path, with each
+    caption looked up via that row's source_path in the original captions_csv - so a perturbed
     image inherits its source image's real caption instead of silently falling back to "".
     Returns captions_csv unchanged when there is no source_path column (e.g. the clean
     test_index.csv) or no --captions_csv was given."""

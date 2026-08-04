@@ -80,7 +80,7 @@ def main(args):
 
     real_set = set((config.get("attribution", {}) or {}).get("real_generators", []))
 
-    # --- gather (paths, generators) the SAME way train_ganfp gathers features ---------
+    # --- gather (paths, generators) the same way train_ganfp gathers features ---------
     if args.sample_dir:
         all_paths, generators = ganfp.scan_sample_dir(args.sample_dir)
         labels_bin = [schema.REAL if g in real_set else schema.FAKE for g in generators]
@@ -117,7 +117,7 @@ def main(args):
              if group_map else None)
 
     # Content-stable split keyed on full_path (same scheme as finetune_defake_head.py) so the
-    # GAN-fp and DE-FAKE test sets are the SAME images -> the benchmark comparison is valid.
+    # GAN-fp and DE-FAKE test sets are the same images -> the benchmark comparison is valid.
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
         val_size=config.get("val_size", 0.1), seed=seed, keys=paths_arr, groups=groups)

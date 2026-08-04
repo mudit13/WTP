@@ -106,7 +106,7 @@ class _RecordingLogger:
 
 
 def test_apply_group_map_exact_match_no_warning():
-    """Regression: when full_path values in the group map and the query paths use the SAME
+    """Regression: when full_path values in the group map and the query paths use the same
     prefix, matching works and no mismatch warning should fire."""
     group_map = {"/pitsec_sose26_topic8/dataset/openforensics/real/a.jpg": "Val:1"}
     log = _RecordingLogger()
@@ -118,10 +118,10 @@ def test_apply_group_map_exact_match_no_warning():
 
 def test_apply_group_map_prefix_mismatch_warns_but_does_not_fix():
     """Regression for the real bug found on the server: extract_openforensics.py recorded the
-    sidecar's full_path with a HOST prefix (/vol2/.../sharedDockerDir/...), while
-    build_master_index.py (run inside the container) builds full_path with a CONTAINER prefix
-    (/pitsec_sose26_topic8/...) for the SAME physical file - apply_group_map must still fail to
-    match (no silent basename-based fix, which would risk false matches elsewhere) but MUST
+    sidecar's full_path with a host prefix (/vol2/.../sharedDockerDir/...), while
+    build_master_index.py (run inside the container) builds full_path with a container prefix
+    (/pitsec_sose26_topic8/...) for the same physical file - apply_group_map must still fail to
+    match (no silent basename-based fix, which would risk false matches elsewhere) but must
     loudly warn that a same-filename, different-prefix near-miss occurred."""
     group_map = {
         "/vol2/pitsec_sose26_topic8/sharedDockerDir/dataset/openforensics/real/a.jpg": "Val:1",
@@ -132,7 +132,7 @@ def test_apply_group_map_prefix_mismatch_warns_but_does_not_fix():
 
     # No silent fix: falls back to the query path itself (singleton), same as any other miss.
     assert list(groups) == query_paths
-    # But it MUST have warned loudly about the near-miss.
+    # But it must have warned loudly about the near-miss.
     assert len(log.warnings) == 1
     assert "PREFIX MISMATCH" in log.warnings[0]
 
@@ -146,8 +146,8 @@ def test_apply_group_map_no_logger_is_silent_and_safe():
 
 def test_group_lookup_map_from_df_prefers_source_path():
     """Regression for the real bug found on the server: prepare_variants.py rewrites full_path
-    to a NEW derived-variant file, keeping the ORIGINAL path only in source_path. A group-aware
-    sidecar is written against the ORIGINAL path, so the lookup map must resolve via
+    to a new derived-variant file, keeping the original path only in source_path. A group-aware
+    sidecar is written against the original path, so the lookup map must resolve via
     source_path, not full_path, whenever source_path is present."""
     import pandas as pd
     df = pd.DataFrame({
@@ -173,8 +173,8 @@ def test_group_lookup_map_from_df_no_source_path_column_falls_back_to_full_path(
 def test_apply_group_map_with_lookup_end_to_end_variant_index_scenario():
     """End-to-end reproduction of the exact server scenario: a variant index (full_path points
     at a derived file; source_path points at the original), matched against a sidecar keyed by
-    the ORIGINAL (source_path) path. Two coupled crops (pair via group id "Val:1") must land in
-    the SAME group despite their full_path values sharing no relationship to each other at all."""
+    the original (source_path) path. Two coupled crops (pair via group id "Val:1") must land in
+    the same group despite their full_path values sharing no relationship to each other at all."""
     lookup_map = {
         "/dataset/variants/aspect/openforensics_real/a.png": "/dataset/openforensics/real/a.jpg",
         "/dataset/variants/aspect/openforensics_fake/a_f.png": "/dataset/openforensics/fake/a_f.jpg",
@@ -192,6 +192,6 @@ def test_apply_group_map_with_lookup_end_to_end_variant_index_scenario():
     ]
     groups = io_utils.apply_group_map_with_lookup(variant_paths, lookup_map, group_map)
     assert groups[0] == groups[1] == "Val:1"  # the coupled pair, correctly grouped
-    # b.png has no group_map hit -> must fall back to ITS OWN full_path (not its source_path,
+    # b.png has no group_map hit -> must fall back to its own full_path (not its source_path,
     # and not some other sentinel), so it is correctly treated as an ungrouped singleton.
     assert groups[2] == variant_paths[2]

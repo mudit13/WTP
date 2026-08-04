@@ -3,7 +3,7 @@
 Build the ground-truth index (master_metadata.csv) for all datasets.
 
 Single source of truth, config-driven superset of the team's original
-build_master_index.py + update_master_index_dffd.py. Emits the EXACT same schema those
+build_master_index.py + update_master_index_dffd.py. Emits the exact same schema those
 scripts used, so run_defake_batch.py keeps working unchanged:
 
     filename, full_path, label, generator, category, source_dataset, width, height

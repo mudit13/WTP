@@ -78,11 +78,11 @@ def test_group_membership_is_id_based_not_call_population_based():
     present in a given call's arrays. Otherwise two callers that filter the population
     differently before splitting (e.g. finetune_defake_head.py restricting to trained classes,
     vs. make_split.py splitting the whole index) can disagree on a coupled row's split side even
-    though both pass the SAME group id for it - exactly the OpenForensics real/out-of-set-fake
+    though both pass the same group id for it - exactly the OpenForensics real/out-of-set-fake
     coupling case, where the out-of-set sibling is filtered out before a trained-classes-only
     split ever sees it."""
-    # A "pairA" group of 2 (both present) and a "pairB" group whose second member is ABSENT from
-    # this call (simulating the sibling being filtered out upstream) - both must use the SAME
+    # A "pairA" group of 2 (both present) and a "pairB" group whose second member is absent from
+    # this call (simulating the sibling being filtered out upstream) - both must use the same
     # group-hash decision for their surviving member(s), not fall back to per-class ranking for
     # the row whose sibling is missing.
     keys = np.array(["pairA_1", "pairA_2", "pairB_1", "solo_1", "solo_2", "solo_3", "solo_4"])
@@ -99,7 +99,7 @@ def test_group_membership_is_id_based_not_call_population_based():
     # pairA's two members (present together) must land on the same side.
     assert split_of["pairA_1"] == split_of["pairA_2"]
 
-    # pairB_1's bucket must be driven by the SAME group-hash rule as pairA (its id is grouped),
+    # pairB_1's bucket must be driven by the same group-hash rule as pairA (its id is grouped),
     # not by the per-class ranking that "solo" rows use. Verify directly against the group hash.
     from lib.defake_head import _hash_unit
     score_b = _hash_unit("GROUP:pairB", 7)

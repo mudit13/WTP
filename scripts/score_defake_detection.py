@@ -53,8 +53,8 @@ def _threshold_hygiene(y_true, y_score, val_frac, seed):
 
       - fixed_0p5          : the honest default (prob_fake >= 0.5).
       - validation_selected: threshold picked on a seeded stratified val holdout, metrics reported
-                             ONLY on the complementary test rows. This is the reportable point.
-      - oracle_upper_bound : best threshold fit on ALL rows -> optimistic, non-achievable ceiling.
+                             only on the complementary test rows. This is the reportable point.
+      - oracle_upper_bound : best threshold fit on all rows -> optimistic, non-achievable ceiling.
     """
     from sklearn.model_selection import train_test_split
 
@@ -97,7 +97,7 @@ def _detection(df):
 
 
 def _group_summary(grp):
-    """Per-group summary. Most groups (a single generator, or one category) contain ONLY one
+    """Per-group summary. Most groups (a single generator, or one category) contain only one
     true class, where precision/recall/macro-F1 are undefined and misleading; for those we
     report a clean detection rate instead. Mixed groups fall back to full detection metrics."""
     y_true = schema.is_fake_label(grp[schema.LABEL]).astype(int).values
@@ -127,7 +127,7 @@ def main(args):
 
     overall = _detection(df)
     # Threshold hygiene: fixed 0.5 vs validation-selected vs oracle upper bound. The old single
-    # "best_threshold on all rows" number is retained ONLY as the labeled oracle_upper_bound.
+    # "best_threshold on all rows" number is retained only as the labeled oracle_upper_bound.
     if schema.PROB_FAKE in df.columns:
         yt = schema.is_fake_label(df[schema.LABEL]).astype(int).values
         ys = pd.to_numeric(df[schema.PROB_FAKE], errors="coerce").values
@@ -153,7 +153,7 @@ if __name__ == "__main__":
                         help="Predictions CSV from run_defake_batch.py (real schema)")
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--val_frac", type=float, default=0.3,
-                        help="Fraction held out ONLY to pick the validation_selected threshold")
+                        help="Fraction held out only to pick the validation_selected threshold")
     parser.add_argument("--seed", type=int, default=42,
                         help="Seed for the stratified val/test threshold split")
     main(parser.parse_args())

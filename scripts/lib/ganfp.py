@@ -234,9 +234,9 @@ def build_features(index_csv: str, cache_path: Optional[str], common_size: int =
     """Return (X, generator, label, paths) for all rows in index_csv, with .npz caching.
 
     Reads the index's schema.PATH/GENERATOR/LABEL. When jpeg_aug is True, each image is pushed
-    through a per-path-deterministic random JPEG quality before fingerprinting. A cache is
-    reused ONLY when its full signature (index content, common_size, feat_size, mode, jpeg
-    params, seed) matches; otherwise it is recomputed.
+    through a per-path-deterministic random JPEG quality before fingerprinting. The cache is
+    reused only when its full signature (index content, common_size, feat_size, mode, jpeg
+    params, seed) matches; otherwise it's recomputed.
     """
     import pandas as pd
 
@@ -314,7 +314,7 @@ class FingerprintStandardizer:
 
     def fit(self, X_train: np.ndarray,
             dct_features: Optional[np.ndarray] = None) -> "FingerprintStandardizer":
-        """Fit scaler+PCA on TRAIN ONLY. Returns self."""
+        """Fit scaler+PCA on the training split only. Returns self."""
         from sklearn.decomposition import PCA
         from sklearn.preprocessing import StandardScaler
 
@@ -454,11 +454,11 @@ def build_pca_pipeline(X_train: np.ndarray, pca_components: int = 64,
     rows, aligned to X_train) is required; the pipeline concatenates a PCA'd DCT channel
     after the residual/spectrum PCA channel, so in_dim = pca_components[+dct_components].
 
-    Contract: X_train (and dct_train) MUST be the TRAIN-split rows only. The helper
-    exposes fit/transform separately (via FingerprintStandardizer) precisely so a caller
-    cannot accidentally fit_transform the whole matrix (leakage guard). sklearn is
-    imported inside FingerprintStandardizer.fit, so importing ganfp never pulls sklearn
-    at module load.
+    Contract: X_train (and dct_train) must be the train-split rows only. The helper
+    exposes fit/transform separately (via FingerprintStandardizer) so a caller can't
+    accidentally fit_transform the whole matrix (leakage guard). sklearn is imported
+    inside FingerprintStandardizer.fit, so importing ganfp never pulls sklearn at
+    module load.
     """
     dcomp = dct_components if dct_fuse else None
     std = FingerprintStandardizer(pca_components=pca_components, dct_components=dcomp)

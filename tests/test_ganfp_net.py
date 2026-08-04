@@ -75,7 +75,7 @@ def test_srm_bank_paper_families():
 
 
 def test_srm_bank_dc_suppressed():
-    """EVERY LINEAR SRM kernel sums to ~0 (DC-suppressed): a constant image yields ~0 on
+    """Every linear SRM kernel sums to ~0 (DC-suppressed): a constant image yields ~0 on
     every filter. This is the defining high-pass property (so a flat image cannot leak DC into
     the conv blocks)."""
     bank = ganfp_net.highpass_bank()  # (N,1,5,5)
@@ -372,7 +372,7 @@ _REAL_CLASSES = ["London-DB", "FFHQ", "CelebA"]
 
 
 def test_ganonly_slice_excludes_diffusion():
-    """The GAN-only slice scores GAN classes + reals ONLY: a diffusion true-label is excluded
+    """The GAN-only slice scores GAN classes + reals only: a diffusion true-label is excluded
     from the scored rows, and a diffusion PREDICTION (on a kept row) is folded to the synthetic
     'diffusion_mismatch' bucket so it counts as wrong without adding diffusion to the per-class
     report. Reals + GANs are scored normally."""

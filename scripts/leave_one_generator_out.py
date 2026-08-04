@@ -5,8 +5,8 @@ Leave-one-generator-out (LOGO): the strict out-of-set generalization test.
 For each of the eight configured fake generators, train the DE-FAKE head on exactly the other
 seven fake classes and test on the held-out generator. Optional joint mode also includes one
 merged Real class. OpenForensics-fake and every other nondeclared class are always excluded.
-Because the held-out class is absent from training, the closed-set head MUST force every image
-into a known label.
+Because the held-out class is absent from training, the closed-set head has no choice but to
+force every image into a known label.
 We record how those forced labels distribute and how confident they are - the central
 research question the supervisors emphasized.
 

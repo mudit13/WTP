@@ -1,6 +1,6 @@
 """predict_defake_head.py must remap captions via source_path for perturbed indices - otherwise
-every perturbed row's caption lookup misses (keyed by the NEW perturbed full_path, which never
-matches anything in a captions CSV built from the ORIGINAL images) and silently falls back to
+every perturbed row's caption lookup misses (keyed by the new perturbed full_path, which never
+matches anything in a captions CSV built from the original images) and silently falls back to
 "", conflating the perturbation's effect with a caption-mismatch artifact in the measured
 attribution robustness (label-flip-rate / confidence-drop)."""
 import pandas as pd
@@ -24,8 +24,8 @@ def test_remaps_captions_via_source_path_for_perturbed_index(tmp_path):
         schema.BLIP_CAPTION: ["a photo of a smiling person", "a photo of a serious person"],
     }).to_csv(captions_csv, index=False)
 
-    # Perturbation-style index: full_path is the NEW (perturbed) path; source_path is the
-    # ORIGINAL image it was perturbed from - exactly robustness_perturb.py's generate() schema.
+    # Perturbation-style index: full_path is the new (perturbed) path; source_path is the
+    # original image it was perturbed from - exactly robustness_perturb.py's generate() schema.
     index_csv = tmp_path / "index_jpeg30.csv"
     pd.DataFrame({
         schema.PATH: ["/robust/jpeg30/a.png", "/robust/jpeg30/b.png"],

@@ -6,7 +6,7 @@ PITSEC SoSe26 - Topic 8: AI Image Detection & Attribution
 Generates >=100 images from FLUX.1-schnell for DE-FAKE evaluation.
 Output: $WTP_FLUX1_OUTPUT_DIR or $WTP_ROOT/dataset/flux1_txt2img/
 
-Usage (inside Docker) - FLUX uses its OWN venv (venv_flux1), not venv_sd15:
+Usage (inside Docker) - FLUX uses its own venv (venv_flux1), not venv_sd15:
     source /pitsec_sose26_topic8/venv_flux1/bin/activate
     python3.9 scripts/generate_flux1_txt2img.py
 

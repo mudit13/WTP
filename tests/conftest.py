@@ -1,6 +1,6 @@
 """Pytest bootstrap: make the scripts/ package importable as `lib.*`, matching how the
 entry scripts import (`from lib import schema, ...`). These smoke tests cover the pure-Python
-logic only (schema, image ops, metrics, io/config) and deliberately do NOT import torch/clip,
+logic only (schema, image ops, metrics, io/config) and do not import torch/clip,
 so they run on a plain CPU runner with just requirements/base.txt + requirements/dev.txt installed."""
 import os
 import sys

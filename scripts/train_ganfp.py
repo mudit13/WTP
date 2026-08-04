@@ -102,7 +102,7 @@ def main(args):
              if group_map else None)
 
     # Content-stable split keyed on full_path (same scheme as finetune_defake_head.py) so the
-    # GAN-fp and DE-FAKE test sets are the SAME images -> the benchmark comparison is valid.
+    # GAN-fp and DE-FAKE test sets are the same images -> the benchmark comparison is valid.
     tr, va, te = defake_head.stratified_split(
         y, test_size=config.get("test_size", 0.2),
         val_size=config.get("val_size", 0.1), seed=seed, keys=path_arr, groups=groups)

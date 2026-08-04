@@ -2,7 +2,7 @@
 """
 Evaluate the requested two-stage system: DCT-SVM detection -> DE-FAKE attribution.
 
-The attribution CSV must score the SAME fixed test index as dct_per_image.csv. For known fake
+The attribution CSV must score the same fixed test index as dct_per_image.csv. For known fake
 generators, a result is end-to-end correct only when DCT predicts fake AND the attribution head
 predicts the true generator. OpenForensics-fake is reported separately as an unseen challenge.
 """

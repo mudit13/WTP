@@ -168,26 +168,26 @@ def _hash_stratified_split(y: np.ndarray, keys: np.ndarray, test_size: float,
     reshuffles the rest. Within each class, samples are ranked by hash and the lowest
     test_size fraction -> test, next val_size -> val, remainder -> train (per-class counts kept).
 
-    GROUP-AWARE (optional): `groups` is a per-sample group id (e.g. OpenForensics source
-    image_id) such that all samples sharing a group id MUST land on the same split side - the
+    Group-aware (optional): `groups` is a per-sample group id (e.g. OpenForensics source
+    image_id) such that all samples sharing a group id must land on the same split side - the
     same-source-photo real/fake coupling fix. Samples whose group id is unique to them
-    ("singleton" groups - every non-OpenForensics row, and any OpenForensics crop whose source
-    photo contributed only one sampled crop) are split EXACTLY as before via the per-class hash
+    (singleton groups - every non-OpenForensics row, and any OpenForensics crop whose source
+    photo contributed only one sampled crop) are split exactly as before via the per-class hash
     ranking above (byte-identical when `groups` is None, since every key is then its own
-    singleton group). Samples in a multi-member group are assigned WHOLE-GROUP via a hash of the
-    group id against the same test_size/val_size thresholds, trading exact per-class
+    singleton group). Samples in a multi-member group are assigned as a whole group via a hash
+    of the group id against the same test_size/val_size thresholds, trading exact per-class
     stratification (for that small coupled subset only) for a hard guarantee against splitting
     one source photo's real and fake crops onto different sides.
 
-    IMPORTANT: "grouped" is determined by whether a row has an EXPLICIT group id different from
-    its own key (i.e. `groups[i] != keys[i]`, meaning `io_utils.apply_group_map` found a sidecar
-    entry for it) - NOT by counting how many rows of that group happen to be present in THIS
-    call's arrays. Counting co-occurrence within the call would make a row's bucket depend on
-    which OTHER rows the caller happened to include: e.g. finetune_defake_head.py restricts to
-    TRAINED classes before splitting, which removes the out-of-set sibling from an
+    "Grouped" is determined by whether a row has an explicit group id different from its own
+    key (i.e. `groups[i] != keys[i]`, meaning `io_utils.apply_group_map` found a sidecar entry
+    for it), not by counting how many rows of that group happen to be present in this call's
+    arrays. Counting co-occurrence within the call would make a row's bucket depend on which
+    other rows the caller happened to include: e.g. finetune_defake_head.py restricts to
+    trained classes before splitting, which removes the out-of-set sibling from an
     OpenForensics-real/OpenForensics-fake coupled pair (OpenForensics-fake is out-of-set) - so
     the surviving OpenForensics-real row would look like a lone singleton there but a 2-member
-    group in make_split.py's UNRESTRICTED call, and the two functions would (and did, until this
+    group in make_split.py's unrestricted call, and the two functions would (and did, until this
     fix) disagree on that row's split side. Keying "grouped" off the id itself makes the decision
     depend only on (group_id, seed), identical across every caller regardless of population
     filtering.
@@ -200,7 +200,7 @@ def _hash_stratified_split(y: np.ndarray, keys: np.ndarray, test_size: float,
 
     tr, va, te = [], [], []
 
-    # Ungrouped rows: the ORIGINAL per-class hash-ranked split, scoped to ungrouped rows only
+    # Ungrouped rows: the original per-class hash-ranked split, scoped to ungrouped rows only
     # (identical output to the pre-group-aware function whenever every row is ungrouped).
     s_idx = np.where(~is_grouped)[0]
     if s_idx.size:
@@ -216,11 +216,11 @@ def _hash_stratified_split(y: np.ndarray, keys: np.ndarray, test_size: float,
             va.extend(order[n_test:n_test + n_val].tolist())
             tr.extend(order[n_test + n_val:].tolist())
 
-    # Grouped rows (explicit sidecar-assigned id): assign the WHOLE group by a hash of the group
-    # id (not per-sample, not per-call-population), so no group can straddle train/val/test AND
+    # Grouped rows (explicit sidecar-assigned id): assign the whole group by a hash of the group
+    # id (not per-sample, not per-call-population), so no group can straddle train/val/test and
     # the decision is stable regardless of which other rows a particular caller filtered out
     # first. Only the OpenForensics coupled subset (or any other future grouped dataset) takes
-    # this path; a row here may be the ONLY member of its group present in this call (e.g. its
+    # this path; a row here may be the only member of its group present in this call (e.g. its
     # sibling was filtered out as out-of-set) and that is fine - the hash still only depends on
     # the group id + seed.
     g_idx = np.where(is_grouped)[0]

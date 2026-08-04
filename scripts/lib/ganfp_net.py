@@ -9,8 +9,8 @@ METHOD is Yu2019-INSPIRED (not a byte-faithful Yu2019 port); the SRM FRONT-END, 
 faithful family-level reconstruction of Fridrich-Kodovsky 2012 (detailed below).
 
 Path B of the GAN-fp reproduction. Path A (residual/spectrum features + defake_head._MLPHead)
-lives in ganfp.py; this module is the end-to-end CNN alternative. Both share the SAME seeded
-stratified split and the SAME per-image JPEG augmentation (image_ops.make_jpeg_augmenter) so
+lives in ganfp.py; this module is the end-to-end CNN alternative. Both share the same seeded
+stratified split and the same per-image JPEG augmentation (image_ops.make_jpeg_augmenter) so
 the head-to-head benchmark (scripts/benchmark_attribution.py) is apples-to-apples.
 
 Architecture (trainable params scale with config.ganfp.cnn.channels; default [32,64,128]
@@ -48,7 +48,7 @@ This is a faithful FAMILY-LEVEL reconstruction of the SRM, NOT an "exact SRM" (t
 not define a single fixed kernel bank). Where the paper leaves a kernel non-unique / sign /
 order-ambiguous, a distinct DC-suppressed kernel from the same family is used.
 
-torch is imported INSIDE the class bodies / forward / __init__ so importing ganfp_net NEVER
+torch is imported inside the class bodies / forward / __init__ so importing ganfp_net never
 pulls torch at module top (CI runs with no torch; the torch tests use pytest.importorskip).
 Module top-level = stdlib + numpy only.
 
@@ -77,7 +77,7 @@ IMG_EXTS = (".png", ".jpg", ".jpeg")
 # kernel is kept (it is a legitimate linear residual, NOT SPAM; it is labelled as such).
 #
 # Each filter is DC-suppressed structurally: the residual is r = X(center) - predictor, so the
-# kernel weights sum to ~0. _norm0 makes that sum EXACTLY 0 (a constant image yields ~0 on
+# kernel weights sum to ~0. _norm0 makes that sum exactly 0 (a constant image yields ~0 on
 # every filter). This is the defining high-pass / residual property the test_highpass_bank_*
 # tests assert.
 #
@@ -99,7 +99,7 @@ IMG_EXTS = (".png", ".jpg", ".jpeg")
 # ---------------------------------------------------------------------------
 
 def _norm0(k: np.ndarray) -> np.ndarray:
-    """Zero-mean a kernel via its CENTER cell so the weights sum to EXACTLY 0 (DC-suppressed),
+    """Zero-mean a kernel via its center cell so the weights sum to exactly 0 (DC-suppressed),
     preserving the sparsity pattern and high-pass character (Eq.1 of the SRM paper).
 
     The center cell absorbs the residual so the sum is exactly 0 and every off-center
@@ -613,15 +613,14 @@ class GANFpCNN:
 class GANFpClassifier:
     """Wrap the CNN + Adam + CrossEntropy(class_weights).
 
-    NOTE ON THE PREDICT SURFACE: unlike defake_head._MLPHead (which consumes a precomputed
-    feature matrix X via predict_proba(X)), this is an END-TO-END CNN whose input is raw
-    images. Its predict entry points therefore consume image PATHS (+ placeholder labels so
-    the DataLoader collates), NOT a feature matrix. The names overlap with _MLPHead
-    (predict_proba / predict / save(path, classes)) but the CNN signature is
-    predict_proba(paths, labels, ...) -> [N, C]. The benchmark keeps Path A and Path B on
-    separate, explicit call sites (run_path_a vs run_path_b) precisely because the two inputs
-    differ (features vs paths); there is no single uniform predict call. Best-val checkpoint
-    is kept (mirrors _MLPHead.fit). torch lazy.
+    Unlike defake_head._MLPHead, which consumes a precomputed feature matrix X via
+    predict_proba(X), this is an end-to-end CNN whose input is raw images: its predict
+    entry points consume image paths (plus placeholder labels so the DataLoader collates),
+    not a feature matrix. The method names overlap with _MLPHead (predict_proba / predict /
+    save(path, classes)) but the CNN signature is predict_proba(paths, labels, ...) -> [N, C].
+    The benchmark keeps Path A and Path B on separate, explicit call sites (run_path_a vs
+    run_path_b) because the two inputs differ (features vs paths); there is no single
+    uniform predict call. Best-val checkpoint is kept (mirrors _MLPHead.fit). torch lazy.
     """
 
     def __init__(self, num_classes: int, input_size: int = 256,

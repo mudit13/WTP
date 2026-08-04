@@ -25,7 +25,7 @@ openforensics_metadata.csv AND in a dedicated `openforensics_groups.csv` sidecar
 `full_path,source_image_id` rows), so downstream splitting (scripts/lib/defake_head.py
 stratified_split's `groups=` argument, wired through finetune_defake_head.py / train_ganfp.py /
 benchmark_attribution.py / leave_one_generator_out.py / make_split.py / audit_split_leakage.py)
-can keep every crop from one source photo on the SAME side of the split, instead of splitting on
+can keep every crop from one source photo on the same side of the split, instead of splitting on
 the crop's own full_path alone.
 
 RUN ON THE HOST: the OpenForensics source under /vol1 is not mounted inside the container.
@@ -35,15 +35,15 @@ Point --out_dir at the host path that the CONTAINER sees as ${WTP_ROOT}/dataset/
 HOST/CONTAINER PATH MISMATCH (record full_path as the CONTAINER would see it, not as --out_dir
 literally reads on the host): build_master_index.py runs INSIDE THE CONTAINER, so every
 full_path it writes into master_metadata.csv (and everything derived from it) uses the
-CONTAINER-side prefix (e.g. /pitsec_sose26_topic8/dataset/openforensics/...). This script runs
-on the HOST, where --out_dir is typically a DIFFERENT absolute path to the SAME bind-mounted
+container-side prefix (e.g. /pitsec_sose26_topic8/dataset/openforensics/...). This script runs
+on the host, where --out_dir is typically a different absolute path to the same bind-mounted
 directory (e.g. /vol2/<user>/sharedDockerDir/dataset/openforensics/...). If full_path is
 recorded using --out_dir's literal value, openforensics_groups.csv's full_path values will
-NEVER match master_metadata.csv's full_path values for the exact same files - group-aware
+never match master_metadata.csv's full_path values for the exact same files - group-aware
 splitting then silently does nothing (apply_group_map falls back to "no match" for every row)
-even though the sidecar loads fine and looks correct. Pass --record_prefix (the CONTAINER-side
-equivalent of --out_dir) so full_path is written in the CONTAINER's own path-namespace instead -
-files are still physically written under --out_dir; only the RECORDED strings change.
+even though the sidecar loads fine and looks correct. Pass --record_prefix (the container-side
+equivalent of --out_dir) so full_path is written in the container's own path-namespace instead -
+files are still physically written under --out_dir; only the recorded strings change.
 
 OpenForensics convention: category_id 0 = real face, 1 = manipulated (fake) face.
 
@@ -88,8 +88,8 @@ def main(args):
 
     root = Path(args.root)
     out_dir = Path(args.out_dir)
-    # record_root is used ONLY for the full_path strings written into the CSVs (metadata +
-    # group sidecar); out_dir remains the REAL filesystem location for mkdir/save. Defaults to
+    # record_root is used only for the full_path strings written into the CSVs (metadata +
+    # group sidecar); out_dir remains the real filesystem location for mkdir/save. Defaults to
     # out_dir (unchanged behavior) when --record_prefix is not given.
     record_root = Path(args.record_prefix) if args.record_prefix else out_dir
     rng = random.Random(args.seed)
@@ -106,7 +106,7 @@ def main(args):
             buckets[label].append((split, img_info, ann))
         print("Collected so far: real=%d fake=%d" % (len(buckets["real"]), len(buckets["fake"])))
 
-    # 2) Seeded selection per class (shuffle then cap), then crop ONLY the selected faces.
+    # 2) Seeded selection per class (shuffle then cap), then crop only the selected faces.
     fieldnames = ["filename", "full_path", "label", "generator",
                   "category", "source_dataset", "width", "height",
                   "source_image_id", "source_split", "annotation_id"]
@@ -163,8 +163,8 @@ def main(args):
             print("  %s: wrote %d (requested cap %s)" % (label, counts[label], args.per_class_limit))
 
     # Group-aware split sidecar: full_path -> source_image_id. Downstream scripts (see the
-    # GROUP-AWARE SPLITTING note above) keep every crop sharing a source_image_id on the SAME
-    # side of train/val/test, closing the same-source-photo real/fake leak. Every OTHER dataset
+    # GROUP-AWARE SPLITTING note above) keep every crop sharing a source_image_id on the same
+    # side of train/val/test, closing the same-source-photo real/fake leak. Every other dataset
     # in the pipeline has no such sidecar, so its rows fall back to singleton groups (=their own
     # full_path) and split exactly as before - this is additive, not a behavior change elsewhere.
     with open(out_dir / "openforensics_groups.csv", "w", newline="") as gf:
@@ -189,11 +189,11 @@ if __name__ == "__main__":
                         help="Host path that the container sees as "
                              "${WTP_ROOT}/dataset/openforensics (real/ + fake/ created here).")
     parser.add_argument("--record_prefix", default=None,
-                        help="CONTAINER-side equivalent of --out_dir (e.g. "
-                             "/pitsec_sose26_topic8/dataset/openforensics), used ONLY for the "
+                        help="Container-side equivalent of --out_dir (e.g. "
+                             "/pitsec_sose26_topic8/dataset/openforensics), used only for the "
                              "full_path strings written into openforensics_metadata.csv and "
                              "openforensics_groups.csv - files are still physically written "
-                             "under --out_dir. REQUIRED whenever --out_dir is a host path "
+                             "under --out_dir. Required whenever --out_dir is a host path "
                              "different from what build_master_index.py (run inside the "
                              "container) will use for these same files, or group-aware "
                              "splitting will silently match nothing (see the module docstring).")

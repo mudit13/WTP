@@ -7,7 +7,7 @@ metrics.json from dct_svm, finetune_metrics.json, logo_summary.json, out_of_set_
 and renders compact tables. This turns scattered run outputs into one paste-ready report
 appendix.
 
-`--results_dir` MUST be a single immutable run directory produced by run_experiment.py (it must
+`--results_dir` must be a single immutable run directory produced by run_experiment.py (it must
 contain that run's run_manifest.json) - never the flat `results/` base directory, which can
 contain multiple runs and would silently mix their metrics into one report.
 
@@ -67,7 +67,7 @@ def main(args):
     history = manifest.get("analysis_history") or []
     if history:
         lines += ["**Note:** %d post-creation analysis_history entr%s recorded (see "
-                 "run_manifest.json); core_commit above is still the ORIGINAL run-producing "
+                 "run_manifest.json); core_commit above is still the original run-producing "
                  "commit." % (len(history), "y" if len(history) == 1 else "ies"), ""]
 
     detection = sorted(glob.glob(os.path.join(args.results_dir, "**", "detection_metrics.json"),

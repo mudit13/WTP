@@ -10,8 +10,8 @@ out-of-set by the true generator. It then reports:
   - false-known rate at several confidence thresholds (confident-but-unseen = the failure)
 and renders overlaid confidence histograms.
 
-NOTE: there is no pretrained DE-FAKE attribution (the provided head is binary), so the
-inputs here come from our fine-tuned head (finetune_per_image.csv, which now contains BOTH the
+There is no pretrained DE-FAKE attribution (the provided head is binary), so the
+inputs here come from our fine-tuned head (finetune_per_image.csv, which now contains both the
 in-set test split and the force-scored unseen generators) and/or the attribution evaluator
 (attribution_per_image.csv). Each per-image CSV needs columns: true_generator, pred_generator,
 confidence[, entropy]. In/out-of-set uses the `in_set` column when present (ground truth from

@@ -7,9 +7,9 @@ history only.
 
 Small CNN channel-width sweep for the GAN-fp attribution head (scripts/lib/ganfp_net.py).
 
-Trains the end-to-end GANFpClassifier over a few conv-channel configs on the SAME seeded
+Trains the end-to-end GANFpClassifier over a few conv-channel configs on the same seeded
 stratified split, evaluates each on the held-out validation split, and reports val accuracy
-per config (plus the trained-head test attribution for the BEST config). Picks the best by
+per config (plus the trained-head test attribution for the best config). Picks the best by
 val top-1 accuracy. The point is to choose the channel width empirically rather than hard-code
 it; the default config is [32,64,128] and this sweep probes around it.
 
@@ -51,7 +51,7 @@ DEFAULT_CHANNEL_CONFIGS = [[16, 32, 64], [32, 64, 128], [48, 96, 192]]
 
 
 def _build_split(args, config, seed, common_size, augment, hflip, real_set, logger=None):
-    """Gather (paths, labels_int, classes, y, tr, va, te) the SAME way train_ganfp_cnn does."""
+    """Gather (paths, labels_int, classes, y, tr, va, te) the same way train_ganfp_cnn does."""
     if args.sample_dir:
         all_paths, generators = ganfp.scan_sample_dir(args.sample_dir)
         labels_bin = [schema.REAL if g in real_set else schema.FAKE for g in generators]

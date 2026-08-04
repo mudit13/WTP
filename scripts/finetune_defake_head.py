@@ -46,7 +46,7 @@ def main(args):
     qrange = tuple(aug_cfg.get("jpeg_quality_range", [30, 100]))
     logger.info("JPEG augmentation: %s (q %s)", jpeg_aug, list(qrange))
 
-    # Keep validation/test/OOS CLEAN. When JPEG control is enabled, build a companion feature
+    # Keep validation/test/OOS clean. When JPEG control is enabled, build a companion feature
     # matrix for training rows only; the old pipeline augmented every row before splitting,
     # inadvertently evaluating on augmented test images despite calling this "training-time".
     X, generator, label, paths = features_cache.build_features(
@@ -116,7 +116,7 @@ def main(args):
     y = defake_head.encode_labels(gi, classes)
 
     # Group-aware split: keep every crop sharing a source (e.g. an OpenForensics source photo's
-    # real+fake crop pair) on the SAME split side. Auto-loads openforensics_groups.csv unless
+    # real+fake crop pair) on the same split side. Auto-loads openforensics_groups.csv unless
     # --group_map overrides it; an empty map is a no-op (every row falls back to a singleton
     # group = its own path), so this is a no-op for indices with no OpenForensics coupling.
     group_map_paths = args.group_map if args.group_map else io_utils.default_group_map_paths(config)

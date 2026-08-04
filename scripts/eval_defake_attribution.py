@@ -2,8 +2,8 @@
 """
 Evaluate multi-class generator attribution and split it into in-set vs out-of-set.
 
-IMPORTANT: the DE-FAKE checkpoint provided on the server (clip_linear.pt) is a BINARY
-real/fake head - there is NO pretrained multi-class attribution. Attribution in this
+The DE-FAKE checkpoint provided on the server (clip_linear.pt) is a binary
+real/fake head - there is no pretrained multi-class attribution. Attribution in this
 project therefore comes from our fine-tuned head (scripts/finetune_defake_head.py), whose
 finetune_per_image.csv this script can score. It also works for any future attribution CSV
 that has a predicted-generator column.
@@ -13,11 +13,11 @@ generator labels come from that CSV if present (true_generator), otherwise by me
 the master CSV on full_path. Generators are the human names from config (SD1.5,
 FLUX.1-schnell, ...).
 
-IN-SET vs OUT-OF-SET is decided by what the head ACTUALLY trained on, not a static config
+In-set vs out-of-set is decided by what the head actually trained on, not a static config
 list: it uses the per-image `in_set` column (written by finetune) if present, else the trained
 `classes` list (finetune_metrics.json / --classes_json / --trained_classes), and only falls
 back to config.in_set_generators with a warning. This prevents reporting held-out samples of a
-TRAINED generator as if they were an out-of-set generalization result.
+trained generator as if they were an out-of-set generalization result.
 
 Outputs attribution metrics (top-1, macro-F1, balanced accuracy), confusion matrices
 (PNG + CSV), and a normalized per-image export for the out-of-set analysis.

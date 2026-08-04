@@ -23,8 +23,8 @@ One-time setup before running:
 import sys
 import os
 
-# StyleGAN3 repo MUST be on sys.path before ANY other imports
-# because pickle.load needs to find StyleGAN3's custom classes during deserialization
+# The StyleGAN3 repo has to be on sys.path before any other imports, because pickle.load
+# needs to find StyleGAN3's custom classes during deserialization.
 PROJECT_ROOT = os.environ.get("WTP_ROOT", "/pitsec_sose26_topic8")
 STYLEGAN3_REPO = os.environ.get(
     "WTP_STYLEGAN3_REPO", os.path.join(PROJECT_ROOT, "stylegan3")

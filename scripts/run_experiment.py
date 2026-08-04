@@ -2,10 +2,10 @@
 """
 One-command experiment orchestrator for the WTP Topic 8 pipeline.
 
-This is a THIN wrapper over the existing per-stage scripts documented in docs/RUNBOOK.md -
+This is a thin wrapper over the existing per-stage scripts documented in docs/RUNBOOK.md -
 it introduces no new science, it just runs the stages in the right order with consistent
 variant / jpeg-aug / path naming so a single command reproduces a full run. Every stage still
-shells out to the same script you would call by hand, so behaviour matches the runbook exactly.
+shells out to the same script one would call by hand, so behaviour matches the runbook exactly.
 
 Interpreter: the sub-scripts need the DE-FAKE venv (CLIP + torch). By default we invoke them
 with $WTP_PY_DEFAKE (falling back to this interpreter), matching RUNBOOK.md.
@@ -33,7 +33,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import io_utils  # noqa: E402
-# Reuse robustness_perturb.py's OWN naming logic (not a re-typed copy of it) so a perturbation
+# Reuse robustness_perturb.py's own naming logic (not a re-typed copy of it) so a perturbation
 # added to config.yaml's robustness block (e.g. sharpen: [1.0, 2.0]) is picked up here
 # automatically instead of being silently skipped by a stale hardcoded list.
 from robustness_perturb import _perturbations as _perturbation_specs  # noqa: E402
@@ -91,7 +91,7 @@ def _prepare_run_dir(c, args):
     config_hash = _sha256(c.cfg)
     if os.path.exists(c.results) and not args.resume:
         raise SystemExit("Run directory already exists: %s. Choose a new --run_id or pass "
-                         "--resume to continue the SAME config." % c.results)
+                         "--resume to continue the same config." % c.results)
     if args.resume:
         if not os.path.exists(manifest_path):
             raise SystemExit("--resume requires an existing %s" % manifest_path)
@@ -148,14 +148,14 @@ def _prepare_run_dir(c, args):
 
 def _perturbation_names(config_path):
     """Perturbation names (e.g. "jpeg30") from config.yaml's `robustness:` block, via
-    robustness_perturb._perturbations - the SAME function robustness_perturb.py itself uses to
+    robustness_perturb._perturbations - the same function robustness_perturb.py itself uses to
     build the actual perturbation ops, so this can never drift out of sync with it.
 
-    Deliberately does NOT use io_utils.load_config (which resolves ${WTP_ROOT}-style
-    placeholders and requires configs/paths.env / the real env to be set up): the `robustness:`
-    block has no placeholders, and this orchestrator's OWN process should still be able to print
-    a --dry_run plan on a machine with no paths.env at all - every other Ctx field already
-    follows that same os.environ.get(..., default) pattern rather than a full config load.
+    Does not use io_utils.load_config (which resolves ${WTP_ROOT}-style placeholders and
+    requires configs/paths.env / the real env to be set up), since the `robustness:` block has
+    no placeholders and this orchestrator should still be able to print a --dry_run plan on a
+    machine with no paths.env at all - every other Ctx field already follows that same
+    os.environ.get(..., default) pattern rather than a full config load.
     """
     import yaml
     with open(config_path, "r", encoding="utf-8") as fh:
@@ -196,7 +196,7 @@ class Ctx:
         self.pred = f"{self.ds}/defake_predictions_{pred_tag}_{self.variant}.csv"
         # explicit override, or fall back to the same-variant detect output
         self.captions = args.captions_csv or self.pred
-        # This path is always the CLEAN eval cache. Training-only JPEG features are written to
+        # This path is always the clean eval cache. Training-only JPEG features are written to
         # features_cache.training_aug_cache_path(self.feats) by the trainers.
         self.feats = f"{self.results}/clip_feats_{self.variant}_clean.npz"
         self.finetune_8_out = f"{self.results}/finetune_8way_{self.variant}_{self.augtag}/"
@@ -456,8 +456,8 @@ def stage_ganfp(c):
 
 
 def stage_robustness(c):
-    """Generate perturbations from the CURRENT test split, then score DE-FAKE + DCT-SVM +
-    attribution on the SAME perturbed set (apples-to-apples method comparison)."""
+    """Generate perturbations from the current test split, then score DE-FAKE + DCT-SVM +
+    attribution on the same perturbed set (apples-to-apples method comparison)."""
     # re-running make_split is idempotent; allows --stages robustness to work standalone
     train_idx = c.train_index
     test_idx = c.test_index
@@ -539,8 +539,9 @@ BUILDERS = {
 
 def _check_prereqs(c, stages):
     """Fail fast (before running anything) when a downstream stage needs an artifact that a
-    skipped upstream stage would have produced. Prevents the deep FileNotFoundError you hit
-    when running ganfp/robustness without first running attribution/dct/detect."""
+    skipped upstream stage would have produced. Prevents the deep FileNotFoundError that
+    running ganfp/robustness without first running attribution/dct/detect would otherwise
+    hit deep inside a sub-script."""
     missing = []
 
     def need(stage_here, producer, artifact, why):

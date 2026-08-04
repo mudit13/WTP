@@ -4,9 +4,9 @@ Head-to-head GAN-fp attribution benchmark: Path A (features+MLP) vs Path B (CNN)
 seeded stratified split (identical tr/va/te index arrays passed to both paths).
 
 Both paths share:
-  - the SAME split (defake_head.stratified_split over generator labels, config.seed);
-  - the SAME per-image JPEG augmentation distribution (image_ops.make_jpeg_augmenter, same
-    seed/qrange) so the comparison is apples-to-apples. KNOWN ASYMMETRY: Path A applies the
+  - the same split (defake_head.stratified_split over generator labels, config.seed);
+  - the same per-image JPEG augmentation distribution (image_ops.make_jpeg_augmenter, same
+    seed/qrange) so the comparison is apples-to-apples. Known asymmetry: Path A applies the
     augment once at feature-extraction time (frozen across epochs); Path B applies it per
     epoch at DataLoader time. Distributions match; within-method augmentation only.
 
@@ -50,7 +50,7 @@ import numpy as np  # noqa: E402
 
 
 def _defake_trained_classes(defake_csv):
-    """Best-effort lookup of the DE-FAKE head's OWN trained class list, so the comparison table
+    """Best-effort lookup of the DE-FAKE head's own trained class list, so the comparison table
     can show "classes trained on" instead of implying GAN-fp (whatever --classes this benchmark
     run used) and DE-FAKE (the primary eight-way fake-only head, or the auxiliary nine-way head
     with one merged `real` class) are directly comparable. Looks for a sibling
@@ -178,7 +178,7 @@ def _write_per_image(out_dir, fname, test_paths, classes, y_te_idx, pred_idx, pr
 def run_path_a(X, generators, classes, y, tr, va, te, real_set,
                pca_components, dct_fuse, dct_components, dct_X,
                epochs, lr, device, seed, logger, out_dir):
-    """Path A: FingerprintStandardizer (fit on TRAIN ONLY) + defake_head._MLPHead."""
+    """Path A: FingerprintStandardizer (fit on the train split only) + defake_head._MLPHead."""
     dct_train = dct_X[tr] if (dct_fuse and dct_X is not None) else None
     std, in_dim = ganfp.build_pca_pipeline(
         X[tr], pca_components=pca_components, dct_fuse=dct_fuse,
@@ -312,8 +312,8 @@ def main(args):
         raise SystemExit("No features/images extracted; check --sample_dir/--index paths.")
 
     # Optional DCT feature channel. X is aligned to paths_all (the kept image order from
-    # extract_fingerprints/features_from_samples); we MUST realign the DCT rows to the SAME
-    # paths_all order by path key, NOT by positional truncation -- a separate extraction pass
+    # extract_fingerprints/features_from_samples); the DCT rows must be realigned to the same
+    # paths_all order by path key, not by positional truncation -- a separate extraction pass
     # can drop a different set of unreadable images and silently shift rows otherwise.
     dct_X = None
     if dct_fuse:
@@ -392,7 +392,7 @@ def main(args):
     _write_per_image(args.out_dir, "per_image_path_b.csv", test_paths, classes,
                      y[te], b["pred"], b["proba"], dict(extras))
 
-    # "classes trained on" per method, so the table documents each method's OWN training
+    # "classes trained on" per method, so the table documents each method's own training
     # regime instead of implying a like-for-like comparison. GAN-fp trains on whatever
     # `classes` this benchmark run used (all 12 by default, or --classes if restricted);
     # DE-FAKE's trained class list is read back from its own finetune_metrics.json when
@@ -437,9 +437,9 @@ def main(args):
                            "classes_trained_on": defake_classes,
                            "n_classes_trained_on": (len(defake_classes)
                                                     if defake_classes else None),
-                           "note": ("DE-FAKE head trained on its OWN class list (see "
+                           "note": ("DE-FAKE head trained on its own class list (see "
                                     "classes_trained_on), not necessarily the same %d classes "
-                                    "GAN-fp was trained on above -- NOT apples-to-apples unless "
+                                    "GAN-fp was trained on above -- not apples-to-apples unless "
                                     "classes_trained_on matches the benchmark's `classes` list "
                                     "(pass --classes to restrict GAN-fp to DE-FAKE's classes "
                                     "for a fair comparison)." % len(classes))})

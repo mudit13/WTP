@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Seed sweep for the fine-tuned attribution head: re-split + re-train the MLP head over K seeds
-on the SAME cached CLIP features, and report mean/std/95% CI of the in-set metrics.
+on the same cached CLIP features, and report mean/std/95% CI of the in-set metrics.
 
 The head is stochastic (random init + a content-stable split that depends on the seed), so a
 single run's "in-set balanced accuracy 0.94 / StyleGAN3 recall 0.82" needs a variance estimate.
-CLIP features are extracted ONCE (fixed feature seed); only the split + head init vary per seed,
+CLIP features are extracted once (fixed feature seed); only the split + head init vary per seed,
 so this is fast (no CLIP recompute) and isolates head/split variance.
 
 Mirrors the class-space and evaluation logic of finetune_defake_head.py exactly.

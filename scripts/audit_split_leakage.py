@@ -79,16 +79,16 @@ def _finetune_splits(index_csv, config, group_map_paths=None, logger=None,
     OOS generators are tagged `unseen` and rows outside the selected class mode are `excluded`.
     Returns a DataFrame with a `split` column.
 
-    group_map_paths: explicit sidecar path(s), overriding auto-detection. IMPORTANT: auto-
-    detection (io_utils.default_group_map_paths) builds the sidecar path from
-    config["dataset_root"], which is a CONTAINER-absolute string (e.g. "/pitsec_sose26_topic8/
+    group_map_paths: explicit sidecar path(s), overriding auto-detection. Note on auto-
+    detection (io_utils.default_group_map_paths): it builds the sidecar path from
+    config["dataset_root"], which is a container-absolute string (e.g. "/pitsec_sose26_topic8/
     dataset") resolved from configs/paths.env's ${WTP_ROOT} placeholder - that string is the
     same no matter which machine loads the config, but os.path.exists() checks it against
-    WHATEVER filesystem the CURRENT process sees. Run this script via bare host python3 (e.g.
+    whatever filesystem the current process sees. Run this script via bare host python3 (e.g.
     because a sibling script needs a host-only mount like /vol1), and the container-absolute
     path silently does not exist on the host, so the group map loads empty and this
-    reconstruction falls back to UNGROUPED splitting - not because the real training run (which
-    ran inside the container, where that path DOES resolve) failed to group, but because THIS
+    reconstruction falls back to ungrouped splitting - not because the real training run (which
+    ran inside the container, where that path does resolve) failed to group, but because this
     reconstruction, run from a different machine, could not find the sidecar. Always pass
     --group_map explicitly (the real host-relative path) when running this script outside the
     container, or the group-straddle number is not trustworthy."""
@@ -110,7 +110,7 @@ def _finetune_splits(index_csv, config, group_map_paths=None, logger=None,
     split[population["oos_mask"]] = "unseen"
     gi, pi = mapped_generator[in_mask], paths[in_mask]
     y = defake_head.encode_labels(gi, classes)
-    # Group-aware reconstruction: MUST match finetune_defake_head.py's actual split (including
+    # Group-aware reconstruction: must match finetune_defake_head.py's actual split (including
     # its group_map), or this audit would report a leak the real pipeline already closed (or
     # miss one it didn't). Uses --group_map when given; otherwise auto-detects (see the
     # docstring above for why auto-detection is unreliable across host/container boundaries).

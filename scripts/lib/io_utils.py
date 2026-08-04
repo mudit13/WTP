@@ -128,14 +128,14 @@ def apply_group_map(paths, group_map: Dict[str, str], logger=None):
     path itself (a singleton group) for any path not present -- so calling this with an empty
     map is a no-op that reproduces the pre-group-aware split exactly.
 
-    When `logger` is given, also checks whether any path that missed an EXACT match would have
-    matched by FILENAME ALONE against some group_map key. This does NOT change the matching
+    When `logger` is given, also checks whether any path that missed an exact match would have
+    matched by filename alone against some group_map key. This does not change the matching
     behavior (no basename-based fallback is applied - that would risk false matches for
     datasets with non-unique basenames); it only surfaces, loudly, the specific failure mode
     that made group-aware splitting a silent no-op in practice: the sidecar and the index being
-    built with DIFFERENT absolute-path prefixes for the same physical files (e.g.
-    extract_openforensics.py run on the HOST with a host --out_dir, while build_master_index.py
-    runs INSIDE THE CONTAINER and records the container-side prefix instead). If this ever logs
+    built with different absolute-path prefixes for the same physical files (e.g.
+    extract_openforensics.py run on the host with a host --out_dir, while build_master_index.py
+    runs inside the container and records the container-side prefix instead). If this ever logs
     a warning, group-aware splitting is not actually doing anything for the affected paths -
     fix the sidecar's recorded prefix (see extract_openforensics.py --record_prefix) rather than
     silently living with the warning.
@@ -169,12 +169,12 @@ def group_lookup_map_from_df(df, path_col: str = "full_path",
     """Return {full_path: lookup_key} from an already-loaded index DataFrame, where lookup_key
     is `source_path` when present and non-null, else `full_path` itself.
 
-    WHY THIS EXISTS: prepare_variants.py (and robustness_perturb.py's perturbation indices)
-    rewrite every row's `full_path` to point at a NEW derived file (a resized/cropped/perturbed
-    copy), preserving the ORIGINAL pre-processing path only in a separate `source_path` column.
-    A group-aware sidecar like openforensics_groups.csv is written against the ORIGINAL
+    Why this exists: prepare_variants.py (and robustness_perturb.py's perturbation indices)
+    rewrite every row's `full_path` to point at a new derived file (a resized/cropped/perturbed
+    copy), preserving the original pre-processing path only in a separate `source_path` column.
+    A group-aware sidecar like openforensics_groups.csv is written against the original
     extraction paths (source_path's target), so looking up a variant index's `full_path`
-    directly in the group map will NEVER match, even with an otherwise perfectly correct
+    directly in the group map will never match, even with an otherwise perfectly correct
     sidecar - confirmed on the server: index full_path matched the sidecar 0/600 times, while
     index source_path matched it 600/600 times (see PROJECT_LOG.md section 22). Use this
     together with `apply_group_map_with_lookup` instead of calling `apply_group_map` directly
@@ -201,11 +201,11 @@ def load_group_lookup_map(index_csv: str, path_col: str = "full_path",
 
 def apply_group_map_with_lookup(paths, lookup_map: Dict[str, str],
                                 group_map: Dict[str, str], logger=None):
-    """Like `apply_group_map`, but first resolves each path's GROUP-MAP LOOKUP KEY via
+    """Like `apply_group_map`, but first resolves each path's group-map lookup key via
     `lookup_map` (see `load_group_lookup_map`) before checking `group_map`. Falls back to the
-    row's OWN full_path (not the resolved lookup key) when there is no match, so the
+    row's own full_path (not the resolved lookup key) when there is no match, so the
     singleton/group identity check in defake_head._hash_stratified_split (`groups[i] !=
-    keys[i]`, keyed on full_path) stays correct - only rows with an ACTUAL group_map hit get a
+    keys[i]`, keyed on full_path) stays correct - only rows with an actual group_map hit get a
     value different from their own full_path; an unmatched row is never spuriously treated as
     "grouped" just because its resolved lookup key happened to differ from its own path.
     """

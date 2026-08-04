@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate a byte-level manifest of the EXACT mounted files an authoritative run depends on, so a
-supervisor can verify their own server's dataset mount (and checkpoints) match this run WITHOUT
+Generate a byte-level manifest of the exact mounted files an authoritative run depends on, so a
+supervisor can verify their own server's dataset mount (and checkpoints) match this run without
 this repository ever redistributing the underlying licensed images or weights.
 
 Two manifest kinds:
@@ -13,7 +13,7 @@ Two manifest kinds:
                        configs/paths.env declares as WTP_DEFAKE_CLIP_LINEAR and
                        WTP_DEFAKE_FINETUNE_CLIP; override with --paths).
 
-Store the resulting manifest CSV + summary JSON in the run's evidence directory, NOT the
+Store the resulting manifest CSV + summary JSON in the run's evidence directory, not the
 underlying files. `scripts/verify_handover.py` re-hashes the mounted files against this manifest
 to give the supervisor byte-level verification using their own existing server access.
 
@@ -50,7 +50,7 @@ def _sha256(path, chunk_size=1 << 20):
 def _normalize(path, root):
     """Path relative to `root` with forward slashes, when `path` is under `root`; otherwise the
     original path unchanged. Purely for human-readable/portable display - verification itself
-    re-opens the recorded absolute `path`, which only resolves on the SAME server/mount."""
+    re-opens the recorded absolute `path`, which only resolves on the same server/mount."""
     if not root:
         return path
     try:

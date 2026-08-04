@@ -8,7 +8,7 @@ The SVM is a LINEAR-kernel 2-class classifier (real vs fake) - documented explic
 
 Modes:
   random        : stratified random train/test split (standard in-set sanity check). Pass
-                  --test_index to make the held-out set EXACTLY the rows of an existing split
+                  --test_index to make the held-out set exactly the rows of an existing split
                   CSV (e.g. results/test_index.csv) instead of drawing a fresh internal split -
                   see the leakage note below.
   out_of_set    : hold out one or more generators entirely from training and test only on

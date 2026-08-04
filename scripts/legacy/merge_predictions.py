@@ -46,7 +46,7 @@ def main(require_dffd: bool = False):
             raise SystemExit(2)
         print("=" * 72)
         print(f"[WARN] {msg}")
-        print("[WARN] Writing a PARTIAL 'all' file from the main predictions ONLY.")
+        print("[WARN] Writing a partial 'all' file from the main predictions only.")
         print("[WARN] Re-run 'run_defake_batch.py --dataset_filter dffd_', or pass "
               "--require-dffd to forbid this.")
         print("=" * 72)

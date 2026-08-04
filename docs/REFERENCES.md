@@ -24,7 +24,7 @@ The project's GAN-fingerprint implementations are Yu2019-inspired unless an exac
 
 ## Datasets
 
-- Dang, Liu, Stehouwer, Liu, and Jain. **On the Detection of Digital Face Manipulation.** CVPR, 2020. DFFD.
+- Dang, Liu, Stehouwer, Liu, and Jain. **On the Detection of Digital Face Manipulation.** CVPR, 2020. DFFD. Licensed **CC BY-NC-SA 4.0** (non-commercial, source attribution required) — confirm this against the exact terms supplied with the mounted copy before final submission.
 - Liu, Luo, Wang, and Tang. **Deep Learning Face Attributes in the Wild.** ICCV, 2015. CelebA.
 - Karras, Laine, and Aila. **A Style-Based Generator Architecture for Generative Adversarial Networks.** CVPR, 2019. FFHQ context.
 - Roessler et al. **FaceForensics++: Learning to Detect Manipulated Facial Images.** ICCV, 2019.

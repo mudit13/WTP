@@ -59,6 +59,12 @@ Development history and superseded experiments remain available under:
 
 - [`history/PROJECT_LOG.md`](history/PROJECT_LOG.md)
 - [`history/GANFP_HISTORICAL.md`](history/GANFP_HISTORICAL.md)
+- [`history/DATA_PROVENANCE_2026-08-01.md`](history/DATA_PROVENANCE_2026-08-01.md) - dataset
+  provenance as it stood for the earlier named run
+- [`history/REPORT_OUTLINE_2026-08-01.md`](history/REPORT_OUTLINE_2026-08-01.md) and
+  [`history/AUTHORITATIVE_RESULTS_DRAFT_2026-08-01.md`](history/AUTHORITATIVE_RESULTS_DRAFT_2026-08-01.md) -
+  the prior report outline and results draft; reusable as a structural starting point for a new
+  report, not as a source of current numbers
 
 They preserve reasoning and debugging context but do not override a final release manifest.
 

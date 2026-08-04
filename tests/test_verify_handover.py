@@ -197,3 +197,116 @@ def test_direct_mode_has_no_hardcoded_run_metrics(tmp_path):
     settings = vh.build_settings(namespace(results_dir=run))
     assert settings["headline_checks"] == []
     assert settings["expected_commit"] is None
+
+
+def test_checkpoint_manifest_rehashes_files(tmp_path):
+    run = base_run(tmp_path)
+    checkpoint = tmp_path / "clip_linear.pt"
+    checkpoint.write_bytes(b"weights")
+    digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+
+    with open(run / "checkpoint_manifest.csv", "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["path", "sha256", "missing"])
+        writer.writeheader()
+        writer.writerow({"path": str(checkpoint), "sha256": digest, "missing": "false"})
+
+    verifier = vh.Verifier(
+        run,
+        run_id="run-one",
+        required_artifacts=["run_manifest.json", "leakage_audit_8way.json"],
+        require_checkpoint_manifest=True,
+        verify_mounts=True,
+    )
+    verifier.run()
+    assert verifier.errors == []
+    assert any("re-hashed 1" in warning for warning in verifier.warnings)
+
+    checkpoint.write_bytes(b"different weights")
+    verifier = vh.Verifier(
+        run,
+        run_id="run-one",
+        required_artifacts=["run_manifest.json", "leakage_audit_8way.json"],
+        require_checkpoint_manifest=True,
+        verify_mounts=True,
+    )
+    verifier.run()
+    assert any("do not match" in error for error in verifier.errors)
+
+
+def test_missing_required_checkpoint_manifest_is_an_error(tmp_path):
+    run = base_run(tmp_path)
+    verifier = vh.Verifier(
+        run,
+        run_id="run-one",
+        required_artifacts=["run_manifest.json", "leakage_audit_8way.json"],
+        require_checkpoint_manifest=True,
+    )
+    verifier.run()
+    assert any("Missing required checkpoint manifest" in error for error in verifier.errors)
+
+
+def test_unreachable_mount_warns_by_default_but_fails_with_verify_mounts(tmp_path):
+    run = base_run(tmp_path)
+    missing_asset = tmp_path / "not_mounted_here.bin"
+
+    with open(run / "data_manifest.csv", "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["path", "sha256", "missing"])
+        writer.writeheader()
+        writer.writerow({"path": str(missing_asset), "sha256": "a" * 64, "missing": "false"})
+
+    lenient = vh.Verifier(
+        run,
+        run_id="run-one",
+        required_artifacts=["run_manifest.json", "leakage_audit_8way.json"],
+    )
+    lenient.run()
+    assert lenient.errors == []
+    assert any("cannot be reached" in warning for warning in lenient.warnings)
+
+    strict = vh.Verifier(
+        run,
+        run_id="run-one",
+        required_artifacts=["run_manifest.json", "leakage_audit_8way.json"],
+        verify_mounts=True,
+    )
+    strict.run()
+    assert any("cannot be reached" in error for error in strict.errors)
+
+
+def test_main_exits_zero_and_logs_pass_on_a_verified_release(tmp_path, caplog):
+    run = base_run(tmp_path)
+    release = tmp_path / "release.yaml"
+    release.write_text(yaml.safe_dump(release_data(run)), encoding="utf-8")
+
+    with caplog.at_level("INFO"):
+        vh.main(namespace(release=release))
+
+    assert any("HANDOVER VERIFICATION PASSED" in record.message for record in caplog.records)
+
+
+def test_main_exits_nonzero_on_headline_mismatch(tmp_path):
+    run = base_run(tmp_path, metric=0.70)
+    release = tmp_path / "release.yaml"
+    release.write_text(yaml.safe_dump(release_data(run, expected=0.75)), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        vh.main(namespace(release=release))
+    assert excinfo.value.code == 1
+
+
+def test_main_exits_with_code_two_on_invalid_release(tmp_path):
+    run = base_run(tmp_path)
+    release_dict = release_data(run)
+    release_dict["git_commit"] = "REPLACE_WITH_40_CHARACTER_COMMIT_SHA"
+    release = tmp_path / "release.yaml"
+    release.write_text(yaml.safe_dump(release_dict), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        vh.main(namespace(release=release))
+    assert excinfo.value.code == 2
+
+
+def test_main_requires_release_or_results_dir():
+    with pytest.raises(SystemExit) as excinfo:
+        vh.main(namespace())
+    assert excinfo.value.code == 2

@@ -9,7 +9,7 @@ assembled stays inspectable.
 |---|---|---|
 | `ingest_openforensics.py` | One-off bridge from a flat, un-split OpenForensics crop dump into `real/`/`fake/` subdirectories. | `scripts/extract_openforensics.py`, which writes `real/`/`fake/` directly and records the `source_image_id` group sidecar. |
 | `sample_dataset.py` | Manual byte-copy sampler used before per-dataset sampling was config-driven. | `sample_size` in `configs/config.yaml`, applied by `build_master_index.py` (seeded random subset per dataset). |
-| `merge_predictions.py` | Concatenated a separate DFFD prediction CSV into `defake_predictions_all.csv`. | `master_metadata.csv` already contains DFFD rows, so `run_defake_batch.py` scores every row in one pass (see docs/RUNBOOK.md "Pipeline note"). |
+| `merge_predictions.py` | Concatenated a separate DFFD prediction CSV into `defake_predictions_all.csv`. | `master_metadata.csv` already contains DFFD rows, so `run_defake_batch.py` scores every row in one pass; no separate merge step is needed. |
 | `ganfp_sweep.py` | One-off CNN channel-width hyperparameter sweep. | Its winning config (`[16, 32, 64]`) is committed directly in `configs/config.yaml` (`ganfp.cnn.channels`). |
 | `run_ganfp_infer.py` | Standalone inference helper for an already-trained `ganfp_head.pt`. | The `ganfp` stage in `run_experiment.py` scores GAN-fp end-to-end via `train_ganfp.py` + `benchmark_attribution.py`. |
 

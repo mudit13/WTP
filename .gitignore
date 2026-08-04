@@ -43,7 +43,7 @@ results/*
 !results/.gitkeep
 
 # Local report/evidence archives
-*_evidence.tar.gz
+*.tar.gz
 *.zip
 
 # Temporary files

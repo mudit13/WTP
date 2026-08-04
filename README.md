@@ -49,7 +49,7 @@ set +a
 
 python3 scripts/check_docs.py
 python3 -m compileall -q scripts tests
-python3 -m pytest -q
+"$WTP_PY_DEFAKE" -m pytest -q  # first run: "$WTP_PY_DEFAKE" -m pip install -r requirements/dev.txt
 ```
 
 Use the configured interpreter for GPU or DE-FAKE work rather than bare `python`:

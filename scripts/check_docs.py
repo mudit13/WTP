@@ -11,6 +11,7 @@ Usage:
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote
@@ -32,10 +33,26 @@ LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 SSH_RE = re.compile(r"\bssh\s+([^\s`]+)@([^\s`]+)", re.IGNORECASE)
 
 
+def _git_tracked_markdown_files():
+    """Markdown paths tracked by git, or None if git is unavailable (e.g. an exported tree
+    with no .git directory). Restricting to tracked files means vendored/ignored checkouts
+    that happen to sit under the repo root on a given machine (e.g. the external stylegan3/
+    clone) are never walked, without having to hardcode every such directory name here."""
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(ROOT), "ls-files", "*.md"],
+            universal_newlines=True, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return sorted(ROOT / line for line in out.splitlines() if line.strip())
+
+
 def active_markdown_files():
     """Return committed-style active Markdown paths, excluding history and archive trees."""
+    tracked = _git_tracked_markdown_files()
+    candidates = tracked if tracked is not None else sorted(ROOT.rglob("*.md"))
     files = []
-    for path in ROOT.rglob("*.md"):
+    for path in candidates:
         rel = path.relative_to(ROOT)
         parts = set(rel.parts)
         if ".git" in parts or "history" in parts or "archive" in parts:

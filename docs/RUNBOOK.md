@@ -111,6 +111,12 @@ The shared files document direct dependencies for CPU checks. They are not a com
 bash scripts/capture_env_locks.sh
 ```
 
+`requirements/dev.txt` (pytest) is not installed by default in any of the three environments. Install it once into the DE-FAKE environment, since the test suite only needs base-level packages (numpy, pandas, PyYAML, Pillow) that environment already has:
+
+```bash
+"$WTP_PY_DEFAKE" -m pip install -r requirements/dev.txt
+```
+
 ## 5. Required external assets
 
 Confirm before running:
@@ -188,7 +194,7 @@ Run repository checks:
 ```bash
 python3 scripts/check_docs.py
 python3 -m compileall -q scripts tests
-python3 -m pytest -q
+"$WTP_PY_DEFAKE" -m pytest -q
 ```
 
 Verify interpreters and assets:
@@ -330,7 +336,7 @@ A non-zero exit is a release blocker. Rerun repository checks after creating the
 ```bash
 python3 scripts/check_docs.py
 python3 -m compileall -q scripts tests
-python3 -m pytest -q
+"$WTP_PY_DEFAKE" -m pytest -q
 ```
 
 ## 15. Report material

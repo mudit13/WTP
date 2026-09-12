@@ -83,6 +83,28 @@ def ensure_dir(path: str) -> str:
     return path
 
 
+def enforce_gpu_determinism(seed: int = 42) -> None:
+    """Pin cuDNN/TF32 behavior so repeated GPU forward passes over the same frozen model
+    (CLIP feature extraction, the GAN-fp CNN, ...) reproduce identical outputs regardless of
+    batch composition. Without this, two independent inference calls over the same images -
+    e.g. finetune_defake_head.py's own held-out eval vs. predict_defake_head.py's separate
+    cascade re-scoring - can pick different (non-deterministic) cuDNN kernels depending on how
+    the caller happened to batch its index, and for images sitting right on a decision boundary
+    that is enough to flip the predicted class even though the model weights never changed.
+
+    Call once per process, before the first model/feature-extraction call (e.g. at the top of
+    clip_features.get_clip()). Lazy torch import so this stays free for CPU-only/non-torch
+    scripts; no-op if CUDA is unavailable (cuDNN/TF32 flags only apply on GPU).
+    """
+    import torch
+    torch.manual_seed(int(seed))
+    if torch.cuda.is_available():
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+
+
 def load_group_map(paths, logger=None) -> Dict[str, str]:
     """Load one or more `full_path,source_image_id` sidecar CSVs (e.g. the
     `openforensics_groups.csv` written by extract_openforensics.py) into a single

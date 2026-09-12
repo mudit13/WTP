@@ -108,7 +108,7 @@ def build_features(index_csv: str,
         augment = image_ops.make_jpeg_augmenter(jpeg_quality_range, seed)
 
     from . import clip_features
-    model, preprocess, dev = clip_features.get_clip(model_name, device)
+    model, preprocess, dev = clip_features.get_clip(model_name, device, seed=seed)
     X, kept = clip_features.extract_features(paths, model, preprocess, dev,
                                              batch_size, captions=captions, augment=augment)
 

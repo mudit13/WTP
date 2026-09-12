@@ -63,7 +63,7 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from . import image_ops, schema
+from . import image_ops, io_utils, schema
 
 IMG_EXTS = (".png", ".jpg", ".jpeg")
 
@@ -629,7 +629,10 @@ class GANFpClassifier:
                  seed: int = 42):
         import torch
 
-        torch.manual_seed(int(seed))
+        # Pins cuDNN/TF32 determinism (see io_utils.enforce_gpu_determinism) so the CNN's
+        # GPU conv forward pass is reproducible regardless of batch composition, closing the
+        # same class of gap fixed in clip_features.get_clip() for the CLIP/DE-FAKE path.
+        io_utils.enforce_gpu_determinism(seed)
         if device == "cuda" and not torch.cuda.is_available():
             device = "cpu"
         self.device = device

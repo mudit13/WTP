@@ -15,12 +15,22 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from . import io_utils
 
-def get_clip(model_name: str = "ViT-B/32", device: str = "cuda"):
+
+def get_clip(model_name: str = "ViT-B/32", device: str = "cuda", seed: int = 42):
     """Load the OpenAI CLIP model + preprocess transform.
 
     DE-FAKE uses OpenAI CLIP (ViT-B/32). We import lazily so non-CLIP scripts do not pay
     the torch import cost and so this file can be linted off-server.
+
+    Pins cuDNN/TF32 determinism before loading (see io_utils.enforce_gpu_determinism) so that
+    two independent extract_features() calls over the same image - e.g. finetune_defake_head.py's
+    own held-out eval vs. predict_defake_head.py's separate cascade re-scoring - reproduce the
+    same embedding regardless of how each caller happened to batch its index. Without this, GPU
+    kernel selection is not guaranteed batch-invariant, and for images sitting right on a
+    decision boundary that was enough to flip the predicted class (verified: SD1.5-img2img,
+    StyleGAN3-FFHQ, FaceApp, PGGAN-v1 rows disagreed between the two eval passes on 8 images).
     """
     try:
         import clip  # OpenAI CLIP, installed on the container system python
@@ -32,6 +42,7 @@ def get_clip(model_name: str = "ViT-B/32", device: str = "cuda"):
             "docs/RUNBOOK.md."
         ) from exc
 
+    io_utils.enforce_gpu_determinism(seed)
     if device == "cuda" and not torch.cuda.is_available():
         device = "cpu"
     model, preprocess = clip.load(model_name, device=device)

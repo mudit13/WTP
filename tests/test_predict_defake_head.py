@@ -41,9 +41,57 @@ def test_remaps_captions_via_source_path_for_perturbed_index(tmp_path):
     assert lookup["/robust/jpeg30/b.png"] == "a photo of a serious person"
 
 
+def test_clean_index_with_source_path_falls_back_to_full_path(tmp_path):
+    """The clean test_index.csv carries a source_path pointing at the PRE-VARIANT original
+    (prepare_variants.py writes it), which never appears in a variant-keyed captions CSV. A
+    source_path-only lookup misses every row and wipes the text half of every embedding, which
+    is what made the cascade's Table 6 predictions disagree with the head's own eval. The
+    row's own full_path must be used as the fallback key."""
+    captions_csv = tmp_path / "defake_predictions_aspect.csv"
+    pd.DataFrame({
+        schema.PATH: ["/ds/variants/aspect/a.png", "/ds/variants/aspect/b.png"],
+        schema.BLIP_CAPTION: ["a photo of a city", "a photo of a face"],
+    }).to_csv(captions_csv, index=False)
+
+    index_csv = tmp_path / "test_index.csv"
+    pd.DataFrame({
+        schema.PATH: ["/ds/variants/aspect/a.png", "/ds/variants/aspect/b.png"],
+        "source_path": ["/ds/sd15_txt2img/images/a.png", "/share/DeepFake/DFFD_Images/b.png"],
+    }).to_csv(index_csv, index=False)
+
+    out = pdh._resolve_captions_csv(str(index_csv), str(captions_csv), str(tmp_path), _StubLogger())
+
+    remapped = pd.read_csv(out)
+    lookup = dict(zip(remapped[schema.PATH], remapped[schema.BLIP_CAPTION]))
+    assert lookup["/ds/variants/aspect/a.png"] == "a photo of a city"
+    assert lookup["/ds/variants/aspect/b.png"] == "a photo of a face"
+
+
+def test_zero_caption_matches_is_fatal(tmp_path):
+    """Matching nothing at all means the captions CSV and the index disagree on path prefix.
+    Running on would score a caption-trained head on caption-less features, so it must fail
+    loudly rather than emit an all-empty caption file."""
+    captions_csv = tmp_path / "captions.csv"
+    pd.DataFrame({
+        schema.PATH: ["/somewhere/else/a.png"], schema.BLIP_CAPTION: ["a caption"],
+    }).to_csv(captions_csv, index=False)
+
+    index_csv = tmp_path / "test_index.csv"
+    pd.DataFrame({
+        schema.PATH: ["/ds/variants/aspect/a.png"],
+        "source_path": ["/ds/sd15_txt2img/images/a.png"],
+    }).to_csv(index_csv, index=False)
+
+    try:
+        pdh._resolve_captions_csv(str(index_csv), str(captions_csv), str(tmp_path), _StubLogger())
+    except SystemExit as exc:
+        assert "0/1 rows" in str(exc)
+    else:
+        raise AssertionError("expected SystemExit when no caption matches")
+
+
 def test_no_source_path_column_returns_captions_csv_unchanged(tmp_path):
-    """A clean (non-perturbed) index like test_index.csv has no source_path column - must be
-    passed through untouched, not remapped."""
+    """An index with no source_path column at all must be passed through untouched."""
     captions_csv = tmp_path / "defake_predictions_aspect.csv"
     pd.DataFrame({
         schema.PATH: ["/orig/a.png"], schema.BLIP_CAPTION: ["a caption"],

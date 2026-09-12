@@ -41,12 +41,20 @@ from lib import io_utils, metrics, features_cache, defake_head, schema  # noqa: 
 
 
 def _resolve_captions_csv(index_csv, captions_csv, scratch_dir, logger):
-    """If index_csv has a source_path column (a robustness_perturb.py perturbation index),
-    build a temporary captions CSV keyed by the current (perturbed) full_path, with each
-    caption looked up via that row's source_path in the original captions_csv - so a perturbed
-    image inherits its source image's real caption instead of silently falling back to "".
-    Returns captions_csv unchanged when there is no source_path column (e.g. the clean
-    test_index.csv) or no --captions_csv was given."""
+    """If index_csv has a source_path column, build a temporary captions CSV keyed by the
+    current full_path, resolving each caption by trying source_path first and the row's own
+    full_path second - so a perturbed image inherits its source image's real caption instead
+    of silently falling back to "".
+
+    Both lookups are needed because source_path means different things in the two indices that
+    reach this function. In a robustness_perturb.py perturbation index, source_path is the
+    pre-perturbation variant path, which is what a captions CSV is keyed by. In the clean
+    test_index.csv, source_path is instead the pre-variant ORIGINAL image (dataset/... or even
+    an external DFFD share path), which never appears in a variant-keyed captions CSV - so a
+    source_path-only lookup misses every row there and wipes the text half of every embedding.
+
+    Returns captions_csv unchanged when there is no source_path column or no --captions_csv
+    was given."""
     if not captions_csv:
         return captions_csv
     import pandas as pd
@@ -60,14 +68,25 @@ def _resolve_captions_csv(index_csv, captions_csv, scratch_dir, logger):
         return captions_csv
     cap_map = dict(zip(cap_df[schema.PATH].astype(str),
                        cap_df[schema.BLIP_CAPTION].fillna("").astype(str)))
+    via_source = idx_df["source_path"].astype(str).map(cap_map).fillna("")
+    via_path = idx_df[schema.PATH].astype(str).map(cap_map).fillna("")
+    resolved = via_source.where(via_source != "", via_path)
     remapped = pd.DataFrame({
         schema.PATH: idx_df[schema.PATH].astype(str),
-        schema.BLIP_CAPTION: idx_df["source_path"].astype(str).map(cap_map).fillna(""),
+        schema.BLIP_CAPTION: resolved,
     })
     n_missing = int((remapped[schema.BLIP_CAPTION] == "").sum())
+    if n_missing == len(remapped) and len(remapped):
+        raise SystemExit(
+            "Caption remap matched 0/%d rows in %s: neither source_path nor full_path from %s "
+            "appears in the captions CSV. Proceeding would run CLIP with an empty caption for "
+            "every image, silently replacing the text half of each 1024-dim embedding and "
+            "producing predictions that disagree with the caption-trained head's own eval. "
+            "Check that the captions CSV and the index were built against the same path prefix."
+            % (len(remapped), captions_csv, index_csv))
     if n_missing:
-        logger.warning("%d/%d rows' source_path had no caption in %s (still fell back to \"\").",
-                       n_missing, len(remapped), captions_csv)
+        logger.warning("%d/%d rows had no caption under source_path or full_path in %s (fell "
+                       "back to \"\").", n_missing, len(remapped), captions_csv)
     io_utils.ensure_dir(scratch_dir)
     tmp_path = os.path.join(scratch_dir, "_captions_remapped_via_source_path.csv")
     remapped.to_csv(tmp_path, index=False)
